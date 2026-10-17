@@ -9,12 +9,16 @@ from decimal import Decimal
 from time import perf_counter
 from uuid import uuid4
 
+import redis.asyncio as aioredis
+
 from sandbox.approvals.queue import QUEUE
 from sandbox.cache.response_cache import CACHE, CachedAnswer
+from sandbox.cache.semantic import SemanticCache
 from sandbox.core.injection import REFUSAL_TEXT, detect_injection
 from sandbox.core.pii import mask_pii
 from sandbox.core.config import (DATABASE_URL, GATEWAY_TIMEOUT_S, GATEWAY_URL, MODEL, REAL_BUDGET_USD,
-                                 REAL_MAX_TOKENS, REAL_MODEL)
+                                 REAL_MAX_TOKENS, REAL_MODEL, CACHE_TTL_S, EMBEDDINGS_URL, REDIS_URL,
+                                 SEMANTIC_CACHE, SEMANTIC_THRESHOLD)
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.llm.pricing import cost_usd as price
 from sandbox.llm.budget import decide
@@ -36,6 +40,9 @@ db = Database(DATABASE_URL)
 gateway = GatewayProvider(name="course", base_url=GATEWAY_URL)
 requests_repo = RequestsRepo(db)
 registry = Registry(PromptsRepo(db))
+# redis-клієнт лінивий: підключення лише при першому зверненні, тож без profile advanced нічого не ламається
+SEMANTIC = SemanticCache(enabled=SEMANTIC_CACHE, redis_client=aioredis.from_url(REDIS_URL, socket_timeout=2),
+                         embed_url=EMBEDDINGS_URL, threshold=SEMANTIC_THRESHOLD, ttl_s=CACHE_TTL_S)
 cost_repo = CostRepo(db)
 
 
@@ -76,6 +83,14 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     # W3 cache: повний ключ — модель + промпт (версія і sha тексту) + повідомлення
     key = CACHE.key(model, active.name, active.version, active.body, text)
     cached = CACHE.get(key)
+    cache_kind = "hit" if cached is not None else "miss"
+    # (опц.) semantic cache: точного збігу немає — шукаємо схоже питання в тій самій області (модель + промпт)
+    scope = SemanticCache.scope(model, active.name, active.version, active.body, CACHE.epoch)
+    if cached is None and SEMANTIC.enabled:
+        found = await SEMANTIC.lookup(scope, text)
+        if found is not None:
+            cached, cache_kind = CachedAnswer(found[0], None), "semantic"
+            STATS.semantic_hits += 1
     if cached is not None:
         STATS.hits += 1
         raw, tool, usage, status, cost_usd = cached.content, cached.tool, Usage(), 200, Decimal("0")
@@ -118,6 +133,8 @@ async def handle_chat(message: str) -> tuple[int, dict]:
         # кешуємо лише успішну відповідь моделі; дії з наслідками (create_ticket) — ніколи (HITL — hw4)
         if res.ok and tool != "create_ticket":
             CACHE.put(key, CachedAnswer(raw, tool, tool_args))
+        if res.ok and tool is None and SEMANTIC.enabled:
+            await SEMANTIC.store(scope, text, raw)   # за змістом — лише відповіді без інструментів
 
     if raw is None:
         # власний текст без вигаданих фактів: ні статусу замовлення, ні номера тікета, ні «зроблено»
@@ -139,5 +156,5 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     await requests_repo.insert_safe(request_id, model, active, latency_ms, usage, cost_usd, str(status))
                                        # W5 observability: лічильники
     log.info("chat request_id=%s model=%s prompt_version=%s status=%s cache=%s fallback=%d latency_ms=%d",
-             request_id, model, active.version, status, "hit" if cached else "miss", STATS.fallback_events, latency_ms)
+             request_id, model, active.version, status, cache_kind, STATS.fallback_events, latency_ms)
     return 200, {"request_id": str(request_id), "content": content, "tool": tool, "latency_ms": latency_ms}

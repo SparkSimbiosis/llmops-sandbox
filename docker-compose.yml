@@ -17,6 +17,8 @@ services:
       # реальна модель (опційно): порожньо = усе на mock; REAL_MODEL=deepseek-chat вмикає третій маршрут
       - REAL_MODEL=${REAL_MODEL:-}
       - REAL_BUDGET_USD=${REAL_BUDGET_USD:-1.0}
+      # (опц.) semantic cache: SEMANTIC_CACHE=1 + docker compose --profile advanced (redis, embeddings)
+      - SEMANTIC_CACHE=${SEMANTIC_CACHE:-0}
     depends_on: [gateway, postgres]
 
   gateway:
@@ -55,5 +57,15 @@ services:
     profiles: ["advanced"]
     ports: ["6379:6379"]
 
+  # (опц.) локальна модель ембеддингів для semantic cache: багатомовна (є українська), без зовнішніх ключів.
+  # Перший старт завантажує модель (~0.5 GB) у том hfcache.
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    profiles: ["advanced"]
+    command: ["--model-id", "intfloat/multilingual-e5-small", "--port", "80"]
+    volumes:
+      - hfcache:/data
+
 volumes:
   pgdata:
+  hfcache:
