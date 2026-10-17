@@ -26,4 +26,5 @@ TOOL_TIMEOUT_S = float(os.getenv("TOOL_TIMEOUT_S", "3.0"))
 SEMANTIC_CACHE = os.getenv("SEMANTIC_CACHE", "0") == "1"
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 EMBEDDINGS_URL = os.getenv("EMBEDDINGS_URL", "http://embeddings:80")
-SEMANTIC_THRESHOLD = float(os.getenv("SEMANTIC_THRESHOLD", "0.92"))      # (опц. hw3) timeout на інструмент
+# поріг підібрано замірами на multilingual-e5-small: непов'язані питання ~0.72–0.73, перефразування 0.89–0.99
+SEMANTIC_THRESHOLD = float(os.getenv("SEMANTIC_THRESHOLD", "0.88"))      # (опц. hw3) timeout на інструмент
