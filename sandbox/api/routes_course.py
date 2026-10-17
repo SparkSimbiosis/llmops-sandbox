@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from sandbox.cache.response_cache import CACHE
 from sandbox.core.config import BUDGET_USD
 from sandbox.course import pipeline
 from sandbox.storage.db import DbUnavailable
@@ -73,6 +74,7 @@ async def activate_prompt(version: str, request: Request):
     if result is None:
         # неіснуюча версія: 404 і нічого не змінено — активна лишається активною
         return JSONResponse({"error": "prompt_version_not_found", "version": version}, status_code=404)
+    CACHE.invalidate()  # W3: новий промпт — старі відповіді з кешу вже не про нього
     return result
 
 
