@@ -1,0 +1,8 @@
+# .dockerignore — allowlist: у контекст збирання потрапляє лише те, що потрібно образу
+*
+!sandbox/
+!requirements.txt
+**/__pycache__
+**/*.pyc
+**/.env
+**/*.env
