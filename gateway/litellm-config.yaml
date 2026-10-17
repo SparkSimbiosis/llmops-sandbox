@@ -49,6 +49,18 @@ model_list:
       model: anthropic/claude-sonnet-5
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  # DeepSeek — реальна модель пісочниці (OpenAI-сумісний API). Ключ лише в gateway/.env (DEEPSEEK_API_KEY);
+  # сервіс його не бачить. Вмикається в сервісі змінною REAL_MODEL, за замовчуванням вимкнено.
+  - model_name: deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  - model_name: deepseek-reasoner
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+      api_key: os.environ/DEEPSEEK_API_KEY
+
   - model_name: azure-gpt-5
     litellm_params:
       model: azure/<azure-deployment-name>   # в Azure після azure/ іде назва deployment, не моделі з каталогу
