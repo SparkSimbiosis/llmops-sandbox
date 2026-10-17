@@ -211,6 +211,16 @@ SERVICE_URL=http://localhost:8180 GATEWAY_URL=http://localhost:4100 python evals
   що в локальній команді (розділ «Поріг evals»). Крок evals не глушиться; branch protection на `main` вимагає чек **`eval`**.
 - **Інцидент:** [INCIDENT_RUNBOOK.md](INCIDENT_RUNBOOK.md) — «провайдер лежить -> fallback -> відновлення» дослівними командами.
 
+#### /metrics і дашборд (опц.)
+
+`GET /metrics` — ті самі показники у форматі Prometheus (лічильники кешу, fallback, помилки за причинами, а також
+requests / p95 / error rate / вартість за сьогодні з БД). Prometheus і Grafana — у `profile advanced`:
+
+```sh
+docker compose --profile advanced up --build -d
+# Prometheus: http://localhost:9090   Grafana: http://localhost:3000 -> дашборд «LLMOps sandbox» (підключається сам)
+```
+
 #### 30-day rollout
 
 1. **Тиждень 1 — golden set і eval-гейт:** зібрати 10 кейсів з реальних задач, які команда щодня ставить AI-асистенту
