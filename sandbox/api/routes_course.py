@@ -3,7 +3,7 @@
 import json
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from sandbox.approvals.queue import QUEUE
@@ -87,6 +87,31 @@ async def activate_prompt(version: str, request: Request):
         return JSONResponse({"error": "prompt_version_not_found", "version": version}, status_code=404)
     CACHE.invalidate()  # W3: новий промпт — старі відповіді з кешу вже не про нього
     return result
+
+
+@router.get("/metrics")
+async def metrics():
+    # (опц. hw6) ті самі показники у форматі Prometheus — для зовнішнього дашборда (Grafana, profile advanced)
+    lines = [
+        "# TYPE sandbox_cache_hits_total counter", f"sandbox_cache_hits_total {STATS.hits}",
+        "# TYPE sandbox_cache_misses_total counter", f"sandbox_cache_misses_total {STATS.misses}",
+        "# TYPE sandbox_semantic_hits_total counter", f"sandbox_semantic_hits_total {STATS.semantic_hits}",
+        "# TYPE sandbox_cache_hit_pct gauge", f"sandbox_cache_hit_pct {STATS.cache_hit_pct()}",
+        "# TYPE sandbox_fallback_events_total counter", f"sandbox_fallback_events_total {STATS.fallback_events}",
+        "# TYPE sandbox_consecutive_failures gauge", f"sandbox_consecutive_failures {STATS.consecutive_failures}",
+        "# TYPE sandbox_errors_total counter",
+        *[f'sandbox_errors_total{{reason="{r}"}} {n}' for r, n in sorted(STATS.errors.items())],
+    ]
+    try:
+        today = await pipeline.obs_repo.today()
+        cost = await pipeline.cost_repo.today_usd()
+        lines += ["# TYPE sandbox_requests_today gauge", f"sandbox_requests_today {today['requests']}",
+                  "# TYPE sandbox_p95_ms_today gauge", f"sandbox_p95_ms_today {today['p95_ms']}",
+                  "# TYPE sandbox_error_rate_pct_today gauge", f"sandbox_error_rate_pct_today {today['error_rate_pct']}",
+                  "# TYPE sandbox_cost_today_usd gauge", f"sandbox_cost_today_usd {cost}"]
+    except DbUnavailable:
+        pass  # БД недоступна — віддаємо лише лічильники з пам'яті; Prometheus покаже прогалину, а не брехню
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
 @router.get("/providers")

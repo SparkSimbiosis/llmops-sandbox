@@ -1,0 +1,8 @@
+# (опц. hw6) Prometheus забирає метрики сервісу кожні 5 с
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: sandbox
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["service:8080"]

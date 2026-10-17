@@ -1,0 +1,291 @@
+{
+  "uid": "sandbox",
+  "title": "LLMOps sandbox",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Запити сьогодні",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sandbox_requests_today",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "p95 latency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sandbox_p95_ms_today",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Error rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sandbox_error_rate_pct_today",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Cache-hit",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sandbox_cache_hit_pct",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Fallback-перемикання",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sandbox_fallback_events_total",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Вартість сьогодні",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sandbox_cost_today_usd",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Помилки за причинами (за 5 хв)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(sandbox_errors_total[5m])",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Повні відмови ланцюга поспіль",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sandbox_consecutive_failures",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Semantic cache hits",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prom"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sandbox_semantic_hits_total",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prom"
+          }
+        }
+      ]
+    }
+  ]
+}
