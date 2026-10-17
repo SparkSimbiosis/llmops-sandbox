@@ -13,6 +13,10 @@ PRICES_PER_1K: dict[str, tuple[Decimal, Decimal]] = {   # (вхід, вихід)
     "mock": (Decimal("0.00015"), Decimal("0.00060")),
     "mock-mini": (Decimal("0.00015"), Decimal("0.00060")),
     "mock-strong": (Decimal("0.00250"), Decimal("0.01000")),
+    # DeepSeek: офіційні ціни за 1M токенів (вхід без кешу / вихід) — deepseek-chat $0.27 / $1.10,
+    # deepseek-reasoner $0.55 / $2.19; тут — за 1k. Прайс — живі дані: звіряти з api-docs.deepseek.com.
+    "deepseek-chat": (Decimal("0.00027"), Decimal("0.00110")),
+    "deepseek-reasoner": (Decimal("0.00055"), Decimal("0.00219")),
 }
 
 _Q = Decimal("0.000001")  # NUMERIC(10, 6) у requests.cost_usd

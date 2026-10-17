@@ -14,6 +14,9 @@ services:
       - DATABASE_URL=postgresql://llmops:llmops@postgres:5432/llmops
       - MODEL=${MODEL:-mock}   # mock (за замовч.) або gpt-5-mini / claude-haiku (потрібен ключ у gateway/.env)
       - BUDGET_USD=${BUDGET_USD:-5.0}
+      # реальна модель (опційно): порожньо = усе на mock; REAL_MODEL=deepseek-chat вмикає третій маршрут
+      - REAL_MODEL=${REAL_MODEL:-}
+      - REAL_BUDGET_USD=${REAL_BUDGET_USD:-1.0}
     depends_on: [gateway, postgres]
 
   gateway:

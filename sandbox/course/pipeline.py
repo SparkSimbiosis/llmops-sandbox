@@ -13,10 +13,12 @@ from sandbox.approvals.queue import QUEUE
 from sandbox.cache.response_cache import CACHE, CachedAnswer
 from sandbox.core.injection import REFUSAL_TEXT, detect_injection
 from sandbox.core.pii import mask_pii
-from sandbox.core.config import DATABASE_URL, GATEWAY_TIMEOUT_S, GATEWAY_URL, MODEL
+from sandbox.core.config import (DATABASE_URL, GATEWAY_TIMEOUT_S, GATEWAY_URL, MODEL, REAL_BUDGET_USD,
+                                 REAL_MAX_TOKENS, REAL_MODEL)
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.llm.pricing import cost_usd as price
-from sandbox.llm.router import FALLBACK_CHAINS, route
+from sandbox.llm.budget import decide
+from sandbox.llm.router import FALLBACK_CHAINS, REAL_MODELS, route
 from sandbox.llm.breaker import BREAKER
 from sandbox.llm.types import LLMResult, Usage
 from sandbox.observability.stats import STATS
@@ -61,7 +63,15 @@ async def handle_chat(message: str) -> tuple[int, dict]:
                  request_id, model, active.version, family, latency_ms)
         return 200, {"request_id": str(request_id), "content": REFUSAL_TEXT, "tool": None, "latency_ms": latency_ms}
 
-    model = route(text, MODEL)         # W2 routing: дешева модель для звичайних питань, сильна — для ескалацій
+    model = route(text, MODEL, REAL_MODEL)   # W2 routing (+ опц. третій маршрут на реальну модель)
+    if model in REAL_MODELS:
+        # (опц. hw2) бюджет реальної моделі: 80% -> дешевша, 100% -> mock-mini; помилка БД -> не ризикуємо грошима
+        try:
+            spent = await cost_repo.real_today_usd(REAL_MODELS)
+        except DbUnavailable:
+            spent = float("inf")
+        model = decide(model, spent, REAL_BUDGET_USD, fallback=route(text, MODEL))
+    # W2 routing: дешева модель для звичайних питань, сильна — для ескалацій
 
     # W3 cache: повний ключ — модель + промпт (версія і sha тексту) + повідомлення
     key = CACHE.key(model, active.name, active.version, active.body, text)
@@ -69,6 +79,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     if cached is not None:
         STATS.hits += 1
         raw, tool, usage, status, cost_usd = cached.content, cached.tool, Usage(), 200, Decimal("0")
+        tool_args = cached.tool_args
     else:
         STATS.misses += 1
         # W4 fallback/HITL/PII: ланцюг моделей з роутера (hw2); 429/5xx/немає відповіді -> наступна модель
@@ -79,7 +90,8 @@ async def handle_chat(message: str) -> tuple[int, dict]:
                 STATS.fallback_events += 1     # кожне перемикання — плитка «Fallback» (hw5)
             if not BREAKER.allow(alias):
                 continue                       # (опц.) breaker відкритий: модель не смикаємо, йдемо далі
-            res = await gateway.complete(messages, alias, timeout_s=GATEWAY_TIMEOUT_S)
+            res = await gateway.complete(messages, alias, timeout_s=GATEWAY_TIMEOUT_S,
+                                         max_tokens=REAL_MAX_TOKENS if alias in REAL_MODELS else None)
             if res.ok:
                 BREAKER.success(alias)
                 break
@@ -97,6 +109,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
         model = res.model_alias                # у лог — модель, яка фактично відповідала (або остання спробувана)
         raw = res.content if res.ok else None
         tool = res.tool_calls[0]["name"] if res.ok and res.tool_calls else None
+        tool_args = res.tool_calls[0].get("arguments", "{}") if res.ok and res.tool_calls else "{}"
         usage = res.usage
         # повний відказ ланцюга: 502 для нерозбірливої відповіді, інакше код останньої спроби (0, 429, 5xx)
         status = res.status if res.ok else (502 if res.error == "bad_json" else res.status)
@@ -104,7 +117,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
         cost_usd = price(model, res.usage) if res.ok else None
         # кешуємо лише успішну відповідь моделі; дії з наслідками (create_ticket) — ніколи (HITL — hw4)
         if res.ok and tool != "create_ticket":
-            CACHE.put(key, CachedAnswer(raw, tool))
+            CACHE.put(key, CachedAnswer(raw, tool, tool_args))
 
     if raw is None:
         # власний текст без вигаданих фактів: ні статусу замовлення, ні номера тікета, ні «зроблено»
@@ -112,7 +125,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     else:
         content = raw
         # W3 tools: read-only інструмент виконуємо (і на hit теж — дані можуть змінитися), результат — у відповідь
-        result = run_read_only(tool) if tool else None
+        result = await run_read_only(tool, tool_args) if tool else None
         if tool == "create_ticket":
             # W4 HITL: незворотна дія не виконується в /chat — заявка йде в чергу /approvals
             QUEUE.add("create_ticket", str(request_id))
