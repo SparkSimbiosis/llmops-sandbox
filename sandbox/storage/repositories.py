@@ -46,6 +46,17 @@ class CostRepo:
             raise DbUnavailable(type(exc).__name__) from exc
         return float(value)
 
+    async def real_today_usd(self, models) -> float:
+        # (опц. hw2) скільки реальних грошей уже витрачено сьогодні — для бюджету реальної моделі
+        try:
+            async with self._db.connection() as conn:
+                value = await conn.fetchval(
+                    "SELECT COALESCE(SUM(cost_usd), 0) FROM requests "
+                    "WHERE created_at::date = CURRENT_DATE AND model = ANY($1::text[])", list(models))
+        except DB_ERRORS as exc:
+            raise DbUnavailable(type(exc).__name__) from exc
+        return float(value)
+
 
 class PromptsRepo:
     """SQL реєстру промптів. Помилки БД -> DbUnavailable: недоступна база — не те саме, що порожній реєстр."""
