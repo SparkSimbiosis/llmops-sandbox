@@ -27,6 +27,77 @@ evals. Агент працює на детермінованому фейков�
 `fix(WN)` / `agent(WN)` з рядком `Rework: mentor` після основної ітерації. Тіло кожного коміту
 пояснює, що зроблено, чому так і що хочемо показати.
 
+## Сервіс: Python sandbox
+
+Сервіс курсу — пакет `sandbox/` (Python 3.12 + FastAPI), збирається з кореня репозиторію
+файлом `Dockerfile.service`. Решта стеку стартера (`ui/`, `gateway/`, `mock-provider/`, Postgres) не змінена,
+запуск той самий:
+
+```sh
+docker compose up --build
+# якщо стандартні порти зайняті:
+docker compose -f docker-compose.yml -f demo-ports.yml up --build -d
+```
+
+Структура:
+
+| Шлях | Що там |
+|---|---|
+| `sandbox/main.py` | застосунок FastAPI; на старті до БД не ходить |
+| `sandbox/course/pipeline.py` | обробник `POST /chat` — те саме місце, що `/chat` у `Program.cs`; шви тижнів позначені `# W2 routing`, `# W3 cache`, `# W4 fallback/HITL/PII`, `# W5 observability` |
+| `sandbox/api/routes_course.py` | маршрути курсу у формах, які читає консоль |
+| `sandbox/prompts/registry.py` | реєстр промптів (W1): активна версія, чесний дефолт `none`, активація з аудитом |
+| `sandbox/llm/gateway_provider.py` | виклик LiteLLM gateway; результат — значення, а не виняток |
+| `sandbox/storage/` | лінивий пул asyncpg і SQL до таблиць курсу |
+| `db/schema.sql` | схема і seed реєстру (дві версії `support-system`, активна `v2`) |
+| `tests/` | юніт-тести без мережі й БД (не замінюють перевірок курсу) |
+
+### Реєстр промптів (hw1)
+
+- Сервіс бере system-промпт з таблиці `prompts` (активна версія `support-system`) і пише в кожен рядок
+  `requests` `prompt_version`, `prompt_name`, `prompt_version_id` і `prompt_sha256` — sha256 тексту, який справді
+  пішов у модель.
+- Немає активної версії → запасний промпт без слова «support» і `prompt_version = 'none'`: mock тоді відповідає
+  «не знаю», evals червоніють — поломку реєстру видно, а не замасковано.
+- Недоступна БД — не порожній реєстр: `/chat`, `GET /prompts` і активація відповідають `503`, тихого дефолту немає.
+- `GET /prompts` — список версій з ознакою `active`; `POST /prompts/{version}/activate` — promote / rollback
+  однією транзакцією з рядком аудиту в `prompt_activations`; неіснуюча версія → `404` без змін.
+- Seed версій живе лише в `db/schema.sql`. Буквальна команда перевірки hw1 шукає в `service/`, якого тут
+  немає; еквівалент по фактичному коду:
+  `grep -ri "INSERT INTO prompts" sandbox/ tests/ Dockerfile.service` → порожньо, а
+  `grep -c "INSERT INTO prompts" db/schema.sql` → `1`.
+
+### Таблиця паритету зі стартером (`service/Program.cs` → `sandbox/`)
+
+| # | Стартер (C#) | Python |
+|---|---|---|
+| 1 | `GATEWAY_URL`, за замовчуванням `http://gateway:4000` | те саме (`sandbox/core/config.py`) |
+| 2 | `DB_CONN` (рядок ADO.NET) | `DATABASE_URL` (URI: asyncpg приймає лише URI); той самий навчальний креденшел стартера |
+| 3 | `MODEL`, за замовчуванням `mock` | те саме |
+| 4 | тіло `{"message": ...}`; невалідне тіло → 400 | pydantic-модель; невалідне тіло → 422 (без рядка в логу) |
+| 5 | GUID на запит | `uuid4()` |
+| 6 | таймер на початку обробника | `perf_counter()` першою дією |
+| 7 | `model = MODEL` (шов W2) | те саме, маркер `# W2 routing` |
+| 8 | промпт захардкоджено | активна версія з реєстру (hw1) |
+| 9 | у gateway `{model, messages: [system, user]}` без `tools` | те саме, рівно два ключі й два повідомлення |
+| 10 | `POST /v1/chat/completions`, таймаут 100 с | httpx, таймаут 100 с |
+| 11 | `status` — HTTP-код відповіді gateway | те саме |
+| 12 | `content: null` → `""`; немає `content` чи `usage` → «Сервіс тимчасово недоступний.», `status` = HTTP-код | те саме (у логу `status = '200'`, токени 0) |
+| 13 | `tool` — назва першого `tool_call`, інструмент не виконується | те саме (виконання — з hw3/hw4) |
+| 14 | токени з `usage` | те саме |
+| 15 | мережа / gateway недоступні → «Сервіс тимчасово недоступний.», `status` 0 або HTTP-код | те саме |
+| 16 | `latency_ms` після виклику, до запису в лог | те саме |
+| 17 | `cost_usd = null` | `None` до hw2 |
+| 18 | один `INSERT` у `requests` до відповіді; помилка запису не валить запит | те саме: `await` до відповіді, помилка йде в лог сервісу |
+| 19 | відповідь `{request_id, content, tool, latency_ms}`, 200 | те саме |
+| 20 | `/health` → `{"status":"ok"}` | те саме, без звернення до БД |
+| 21 | заглушки `/observability`, `/cost`, `/prompts`, `/providers`, `/approvals` — `{"todo": ...}` | дослівно ті самі тексти; кожна оживає у свій тиждень (`/prompts` — у hw1) |
+| 22 | слухає `0.0.0.0:8080` | uvicorn, один процес (кеш і лічильники наступних тижнів живуть у пам'яті) |
+| 23 | маршрутів активації й approve немає → 404 | те саме до свого тижня (активація — hw1, approve — hw4) |
+| 24 | без CORS і auth, тіло запиту не логується | те саме |
+
+Відмінності, видимі ззовні, лише дві: `422` замість `400` на невалідне тіло і `503`, коли БД реєстру недоступна.
+
 # Starter repository
 
 Те, що студент клонує на першому уроці й дороблює до capstone.
