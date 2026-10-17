@@ -11,12 +11,14 @@ from uuid import uuid4
 
 from sandbox.approvals.queue import QUEUE
 from sandbox.cache.response_cache import CACHE, CachedAnswer
+from sandbox.core.injection import REFUSAL_TEXT, detect_injection
 from sandbox.core.pii import mask_pii
 from sandbox.core.config import DATABASE_URL, GATEWAY_TIMEOUT_S, GATEWAY_URL, MODEL
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.llm.pricing import cost_usd as price
 from sandbox.llm.router import FALLBACK_CHAINS, route
-from sandbox.llm.types import Usage
+from sandbox.llm.breaker import BREAKER
+from sandbox.llm.types import LLMResult, Usage
 from sandbox.observability.stats import STATS
 from sandbox.prompts.registry import PROMPT_NAME, Registry
 from sandbox.storage.db import Database, DbUnavailable
@@ -49,6 +51,16 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     except DbUnavailable:
         log.warning("chat request_id=%s prompt registry unavailable", request_id)
         return 503, {"request_id": str(request_id), "error": "prompt_registry_unavailable"}
+    # W4 (опц.) injection: перефразовані атаки ловимо до роутера й моделі — відмова без виклику моделі
+    family = detect_injection(text)
+    if family is not None:
+        model = route(text, MODEL)
+        latency_ms = int((perf_counter() - t0) * 1000)
+        await requests_repo.insert_safe(request_id, model, active, latency_ms, Usage(), Decimal("0"), "200")
+        log.info("chat request_id=%s model=%s prompt_version=%s status=200 injection=%s latency_ms=%d",
+                 request_id, model, active.version, family, latency_ms)
+        return 200, {"request_id": str(request_id), "content": REFUSAL_TEXT, "tool": None, "latency_ms": latency_ms}
+
     model = route(text, MODEL)         # W2 routing: дешева модель для звичайних питань, сильна — для ескалацій
 
     # W3 cache: повний ключ — модель + промпт (версія і sha тексту) + повідомлення
@@ -61,12 +73,23 @@ async def handle_chat(message: str) -> tuple[int, dict]:
         STATS.misses += 1
         # W4 fallback/HITL/PII: ланцюг моделей з роутера (hw2); 429/5xx/немає відповіді -> наступна модель
         messages = [{"role": "system", "content": active.body}, {"role": "user", "content": text}]
+        res = None
         for i, alias in enumerate(FALLBACK_CHAINS[model]):
             if i > 0:
                 STATS.fallback_events += 1     # кожне перемикання — плитка «Fallback» (hw5)
+            if not BREAKER.allow(alias):
+                continue                       # (опц.) breaker відкритий: модель не смикаємо, йдемо далі
             res = await gateway.complete(messages, alias, timeout_s=GATEWAY_TIMEOUT_S)
-            if res.ok or not res.retryable:
+            if res.ok:
+                BREAKER.success(alias)
                 break
+            if not res.retryable:
+                break
+            BREAKER.failure(alias)
+        if res is None:
+            # усі моделі ланцюга з відкритим breaker: у модель не ходили, одразу заглушка
+            res = LLMResult(ok=False, status=503, content="", model_alias=FALLBACK_CHAINS[model][-1],
+                            error="circuit_open")
         if res.ok:
             STATS.consecutive_failures = 0     # будь-яка справжня відповідь провайдера скидає серію збоїв
         else:
