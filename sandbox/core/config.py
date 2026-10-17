@@ -21,4 +21,10 @@ REAL_MODEL = os.getenv("REAL_MODEL", "").strip()
 REAL_BUDGET_USD = float(os.getenv("REAL_BUDGET_USD", "1.0"))   # денний ліміт на реальну модель
 REAL_MAX_TOKENS = int(os.getenv("REAL_MAX_TOKENS", "400"))     # стеля відповіді — контроль вартості
 CACHE_TTL_S = float(os.getenv("CACHE_TTL_S", "3600"))          # (опц. hw3) скільки живе запис кешу
-TOOL_TIMEOUT_S = float(os.getenv("TOOL_TIMEOUT_S", "3.0"))      # (опц. hw3) timeout на інструмент
+TOOL_TIMEOUT_S = float(os.getenv("TOOL_TIMEOUT_S", "3.0"))
+# (опц. hw3) semantic cache: вимкнено за замовчуванням; потрібні redis і embeddings (docker compose --profile advanced)
+SEMANTIC_CACHE = os.getenv("SEMANTIC_CACHE", "0") == "1"
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+EMBEDDINGS_URL = os.getenv("EMBEDDINGS_URL", "http://embeddings:80")
+# поріг підібрано замірами на multilingual-e5-small: непов'язані питання ~0.72–0.73, перефразування 0.89–0.99
+SEMANTIC_THRESHOLD = float(os.getenv("SEMANTIC_THRESHOLD", "0.88"))      # (опц. hw3) timeout на інструмент
