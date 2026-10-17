@@ -13,7 +13,7 @@ from sandbox.observability.stats import STATS
 def _fresh_course_memory():
     CACHE.entries.clear()
     CACHE.epoch = 0
-    STATS.hits = STATS.misses = STATS.semantic_hits = STATS.fallback_events = STATS.consecutive_failures = 0
+    STATS.__init__()   # усі лічильники з нуля, включно з помилками за причинами
     QUEUE._pending.clear(); QUEUE._completed.clear(); QUEUE._expired.clear(); TICKETS.clear()
     BREAKER.states.clear()
     yield

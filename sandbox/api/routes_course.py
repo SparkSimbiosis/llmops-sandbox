@@ -8,7 +8,10 @@ from pydantic import BaseModel
 
 from sandbox.approvals.queue import QUEUE
 from sandbox.cache.response_cache import CACHE
-from sandbox.core.config import BUDGET_USD
+from sandbox.core.config import BUDGET_USD, MODEL, REAL_MODEL
+from sandbox.llm.breaker import BREAKER
+from sandbox.llm.router import FALLBACK_CHAINS, providers_for
+from sandbox.observability.stats import STATS
 from sandbox.course import pipeline
 from sandbox.storage.db import DbUnavailable
 
@@ -35,7 +38,14 @@ async def health():
 # Кожна оживає у свій тиждень — текст дослівно як у стартері.
 @router.get("/observability")
 async def observability():
-    return {"todo": "aggregate from requests table"}   # W5
+    # W5: три числа з БД (чесні — звіряються SQL) + два лічильники з пам'яті процесу (після рестарту з нуля)
+    try:
+        db_part = await pipeline.obs_repo.today()
+    except DbUnavailable:
+        return JSONResponse({"error": "db_unavailable"}, status_code=503)
+    return {**db_part, "cache_hit_pct": STATS.cache_hit_pct(), "fallback_events": STATS.fallback_events,
+            # (опц.) розбивка помилок за причинами — консоль її не читає, це для розбору інцидентів
+            "errors_by_reason": dict(STATS.errors), "semantic_hits": STATS.semantic_hits}
 
 
 @router.get("/cost")
@@ -81,7 +91,17 @@ async def activate_prompt(version: str, request: Request):
 
 @router.get("/providers")
 async def providers():
-    return {"todo": "provider health"}                  # W5
+    # W5: статус реагує на збої — після 3 повних відмов ланцюга поспіль усі моделі degraded;
+    # модель з відкритим circuit breaker теж degraded. Порядок — як у ланцюгах роутера.
+    names = providers_for(MODEL) + (FALLBACK_CHAINS[REAL_MODEL] if REAL_MODEL else [])
+    seen, items = set(), []
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        bad = STATS.consecutive_failures >= 3 or BREAKER.is_open(name)
+        items.append({"name": name, "status": "degraded" if bad else "ok"})
+    return {"providers": items}
 
 
 @router.get("/approvals")

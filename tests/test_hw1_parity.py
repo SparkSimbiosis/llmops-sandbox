@@ -22,8 +22,6 @@ from sandbox.storage.repositories import RequestsRepo
 
 # маршрути, що ще не ожили, і їхній дослівний текст заглушки; список скорочується з тижнями
 PENDING_STUBS = {
-    "/observability": "aggregate from requests table",
-    "/providers": "provider health",
 }
 
 
