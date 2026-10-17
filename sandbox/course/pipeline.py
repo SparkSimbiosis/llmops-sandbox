@@ -10,30 +10,37 @@ from uuid import uuid4
 
 from sandbox.core.config import DATABASE_URL, GATEWAY_TIMEOUT_S, GATEWAY_URL, MODEL
 from sandbox.llm.gateway_provider import GatewayProvider
-from sandbox.storage.db import Database
-from sandbox.storage.repositories import RequestsRepo
+from sandbox.prompts.registry import PROMPT_NAME, Registry
+from sandbox.storage.db import Database, DbUnavailable
+from sandbox.storage.repositories import PromptsRepo, RequestsRepo
 
 log = logging.getLogger("sandbox.chat")
 
-# W1: промпт поки захардкоджений, як у стартері; наступний коміт бере його з реєстру
-SYSTEM_PROMPT = "You are a support assistant."
 UNAVAILABLE_TEXT = "Сервіс тимчасово недоступний."
 
 db = Database(DATABASE_URL)
 gateway = GatewayProvider(name="course", base_url=GATEWAY_URL)
 requests_repo = RequestsRepo(db)
+registry = Registry(PromptsRepo(db))
 
 
-async def handle_chat(message: str) -> dict:
+async def handle_chat(message: str) -> tuple[int, dict]:
+    """Повертає (HTTP-код, тіло) відповіді /chat. 200 у всіх бізнес-гілках; недоступна БД реєстру -> 503
+    без рядка в логу: тихо підміняти реєстр дефолтом не можна, інакше поломку не видно."""
     t0 = perf_counter()
     request_id = uuid4()
 
     text = message                     # W4 fallback/HITL/PII: mask_pii(text) — першою операцією
+    # W1: промпт — активна версія з реєстру; порожній реєстр -> чесний дефолт з версією 'none'
+    try:
+        active = await registry.get_active(PROMPT_NAME)
+    except DbUnavailable:
+        log.warning("chat request_id=%s prompt registry unavailable", request_id)
+        return 503, {"request_id": str(request_id), "error": "prompt_registry_unavailable"}
     model = MODEL                      # W2 routing: route(text, MODEL)
-    system_prompt = SYSTEM_PROMPT
                                        # W3 cache: lookup за повним ключем (модель, промпт, повідомлення)
     res = await gateway.complete(
-        [{"role": "system", "content": system_prompt}, {"role": "user", "content": text}],
+        [{"role": "system", "content": active.body}, {"role": "user", "content": text}],
         model, timeout_s=GATEWAY_TIMEOUT_S)
 
     content = res.content if res.ok else UNAVAILABLE_TEXT
@@ -42,8 +49,10 @@ async def handle_chat(message: str) -> dict:
     latency_ms = int((perf_counter() - t0) * 1000)
     cost_usd = None                    # W2 routing: tokens * ціна моделі -> cost_usd
 
-    # один рядок у requests ДО відповіді: з нього живуть observability і cost
-    await requests_repo.insert_safe(request_id, model, latency_ms, res.usage, cost_usd, str(res.status))
+    # один рядок у requests ДО відповіді: з нього живуть observability і cost;
+    # prompt_version — саме та версія, що пішла в модель
+    await requests_repo.insert_safe(request_id, model, active, latency_ms, res.usage, cost_usd, str(res.status))
                                        # W5 observability: лічильники
-    log.info("chat request_id=%s model=%s status=%s latency_ms=%d", request_id, model, res.status, latency_ms)
-    return {"request_id": str(request_id), "content": content, "tool": tool, "latency_ms": latency_ms}
+    log.info("chat request_id=%s model=%s prompt_version=%s status=%s latency_ms=%d",
+             request_id, model, active.version, res.status, latency_ms)
+    return 200, {"request_id": str(request_id), "content": content, "tool": tool, "latency_ms": latency_ms}

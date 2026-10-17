@@ -1,9 +1,13 @@
 """Маршрути курсу. Форми відповідей — ті, що читає готова консоль (ui/src/app/*.ts)."""
 
-from fastapi import APIRouter
+import json
+
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from sandbox.course import pipeline
+from sandbox.storage.db import DbUnavailable
 
 router = APIRouter()
 
@@ -14,7 +18,8 @@ class ChatIn(BaseModel):
 
 @router.post("/chat")
 async def chat(body: ChatIn):
-    return await pipeline.handle_chat(body.message)
+    status, payload = await pipeline.handle_chat(body.message)
+    return JSONResponse(payload, status_code=status)
 
 
 @router.get("/health")
@@ -37,7 +42,32 @@ async def cost():
 
 @router.get("/prompts")
 async def prompts():
-    return {"todo": "list from prompts table"}          # W1
+    # W1: список версій реєстру; у кожній видно, активна вона чи ні (картка Prompt registry)
+    try:
+        return await pipeline.registry.list_versions()
+    except DbUnavailable:
+        return JSONResponse({"error": "prompt_registry_unavailable"}, status_code=503)
+
+
+@router.post("/prompts/{version}/activate")
+async def activate_prompt(version: str, request: Request):
+    # promote / rollback. Тіло необов'язкове: консоль шле {}, можна {"quote": "..."} — чиє рішення
+    # і дослівно яке (йде в аудит). Невалідне тіло не заважає активації.
+    quote = None
+    try:
+        data = json.loads(await request.body() or b"{}")
+        if isinstance(data, dict) and isinstance(data.get("quote"), str):
+            quote = data["quote"]
+    except (ValueError, UnicodeDecodeError):
+        pass
+    try:
+        result = await pipeline.registry.activate(version, quote)
+    except DbUnavailable:
+        return JSONResponse({"error": "prompt_registry_unavailable"}, status_code=503)
+    if result is None:
+        # неіснуюча версія: 404 і нічого не змінено — активна лишається активною
+        return JSONResponse({"error": "prompt_version_not_found", "version": version}, status_code=404)
+    return result
 
 
 @router.get("/providers")

@@ -14,12 +14,13 @@ from fastapi.testclient import TestClient
 from sandbox.course import pipeline
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.main import app
+from sandbox.prompts.registry import Registry
+from tests.memory_prompts import MemoryPrompts
 from sandbox.storage.db import DbUnavailable
 from sandbox.storage.repositories import RequestsRepo
 
 # маршрути, що ще не ожили, і їхній дослівний текст заглушки; список скорочується з тижнями
 PENDING_STUBS = {
-    "/prompts": "list from prompts table",
     "/cost": "sum cost_usd for today + budget",
     "/observability": "aggregate from requests table",
     "/providers": "provider health",
@@ -31,8 +32,9 @@ class MemoryRequests:
     def __init__(self):
         self.rows: list[dict] = []
 
-    async def insert_safe(self, request_id, model, latency_ms, usage, cost_usd, status):
-        self.rows.append({"request_id": request_id, "model": model, "latency_ms": latency_ms,
+    async def insert_safe(self, request_id, model, active, latency_ms, usage, cost_usd, status):
+        self.rows.append({"request_id": request_id, "model": model, "prompt_version": active.version,
+                          "prompt_sha256": active.sha256, "latency_ms": latency_ms,
                           "prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens,
                           "cost_usd": cost_usd, "status": status})
 
@@ -68,6 +70,7 @@ def wire(monkeypatch):
         return reply["handler"](request)
 
     repo = MemoryRequests()
+    monkeypatch.setattr(pipeline, "registry", Registry(MemoryPrompts(), pause_s=0))
     monkeypatch.setattr(pipeline, "gateway",
                         GatewayProvider(name="course", base_url="http://gw", transport=httpx.MockTransport(handler)))
     monkeypatch.setattr(pipeline, "requests_repo", repo)
