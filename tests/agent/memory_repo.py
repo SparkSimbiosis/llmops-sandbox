@@ -8,6 +8,7 @@ import pathlib
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from sandbox.agent.repo import AgentDbUnavailable
 from sandbox.core.hashing import sha256_hex
@@ -141,11 +142,13 @@ class MemoryAgentRepo:
                                "intent": None, "mode": mode, "base": base, "status": "received", "message": None,
                                "prompt_version": None, "context_sha256": None, "base_versions": {},
                                "patch_diff": None, "patch_sha256": None, "gate_report": [],
-                               "total_prompt_tokens": 0, "total_completion_tokens": 0, "error": None}
+                               "total_prompt_tokens": 0, "total_completion_tokens": 0, "error": None,
+                               "complexity": None, "total_cost_usd": None}
 
     async def insert_call(self, task_id, seq, step, provider, model, prompt_name, prompt_version, prompt_sha256,
-                          prompt_tokens, completion_tokens, latency_ms, status):
+                          prompt_tokens, completion_tokens, latency_ms, status, cost_usd):
         self._check("insert_call")
+        assert cost_usd is None or (isinstance(cost_usd, Decimal) and cost_usd == cost_usd.quantize(Decimal("0.000001")))
         assert task_id in self.tasks                                    # REFERENCES agent_tasks
         assert not any(c["task_id"] == task_id and c["seq"] == seq for c in self.calls)   # UNIQUE (task_id, seq)
         assert step in ("plan", "propose")                              # CHECK step
@@ -153,17 +156,31 @@ class MemoryAgentRepo:
                            "prompt_name": prompt_name, "prompt_version": prompt_version,
                            "prompt_sha256": prompt_sha256, "prompt_tokens": prompt_tokens,
                            "completion_tokens": completion_tokens, "latency_ms": latency_ms, "status": status,
-                           "created_at": self._tick()})
+                           "cost_usd": cost_usd, "created_at": self._tick()})
 
     async def finish_task(self, task_id, *, status, message, intent, prompt_version, context_sha256,
                           base_versions, patch_diff, patch_sha256, gate_report, prompt_tokens,
-                          completion_tokens, error):
+                          completion_tokens, error, complexity, total_cost_usd):
         self._check("finish_task")
         self.tasks[task_id].update({
             "status": status, "message": message, "intent": intent, "prompt_version": prompt_version,
             "context_sha256": context_sha256, "base_versions": dict(base_versions), "patch_diff": patch_diff,
             "patch_sha256": patch_sha256, "gate_report": list(gate_report), "total_prompt_tokens": prompt_tokens,
-            "total_completion_tokens": completion_tokens, "error": error, "updated_at": self._tick()})
+            "total_completion_tokens": completion_tokens, "error": error, "complexity": complexity,
+            "total_cost_usd": total_cost_usd, "updated_at": self._tick()})
+
+    async def cost_today(self):
+        # у пам'яті всі виклики «сьогоднішні»; SUM ігнорує NULL, порожня сума — 0 (COALESCE)
+        self._check("cost_today")
+        def total(calls):
+            return sum((c["cost_usd"] for c in calls if c["cost_usd"] is not None), Decimal("0"))
+        by_model = {}
+        for c in self.calls:
+            by_model.setdefault(c["model"], []).append(c)
+        rows = [{"model": m, "calls": len(cs), "cost_usd": total(cs)} for m, cs in by_model.items()]
+        rows.sort(key=lambda r: (-r["cost_usd"], r["model"]))
+        real = [c for c in self.calls if self.tasks[c["task_id"]]["mode"] == "real"]
+        return {"today_usd": total(self.calls), "real_today_usd": total(real), "by_model": rows}
 
     def calls_of(self, task_id) -> list[dict]:
         return sorted((c for c in self.calls if c["task_id"] == task_id), key=lambda c: c["seq"])
@@ -175,7 +192,8 @@ class MemoryAgentRepo:
         for t in rows:
             calls = self.calls_of(t["task_id"])
             out.append({"task_id": t["task_id"], "created_at": t["created_at"], "status": t["status"],
-                        "intent": t["intent"], "model": calls[-1]["model"] if calls else None})
+                        "intent": t["intent"], "total_cost_usd": t["total_cost_usd"],
+                        "model": calls[-1]["model"] if calls else None})
         return out
 
     async def get_task(self, task_id):

@@ -2,6 +2,8 @@
 
 Механізм уроку W1 на агенті: кожен крок бере активну версію свого промпта з реєстру agent_prompts,
 і в кожен рядок agent_calls пишуться версія та sha256 тексту, який справді пішов у модель.
+Механізм уроку W2 (hw2): модель для кроку обирає routing.route_task за складністю задачі, а кожен
+виклик отримує cost_usd за синтетичними цінами агента; total_cost_usd задачі = сума її викликів.
 Усі доменні результати — HTTP 200 зі статусом задачі; 503 — лише коли недоступна агентська БД.
 """
 
@@ -9,12 +11,12 @@ import json
 import logging
 from uuid import uuid4
 
-from sandbox.agent import context, gates
+from sandbox.agent import context, gates, pricing, routing
 from sandbox.agent.patches import looks_like_diff
 from sandbox.agent.prompts import AgentPromptRegistry
 from sandbox.agent.repo import AgentDatabase, AgentDbUnavailable, AgentRepo
-from sandbox.agent.settings import (AGENT_CALL_TIMEOUT_S, AGENT_FAKE_DELAY_MS, AGENT_MODEL, ALLOWED_PATHS,
-                                    EDITOR_PROMPT, PLANNER_PROMPT)
+from sandbox.agent.settings import (AGENT_CALL_TIMEOUT_S, AGENT_FAKE_DELAY_MS, ALLOWED_PATHS, EDITOR_PROMPT,
+                                    PLANNER_PROMPT)
 from sandbox.agent.state import AGENT_STATE
 from sandbox.core.config import DATABASE_URL
 from sandbox.core.hashing import sha256_hex
@@ -67,7 +69,7 @@ def parse_plan(content: str) -> dict | None:
 
 
 class _Run:
-    """Стан однієї задачі: рахує виклики й токени, пише кожен виклик рядком agent_calls."""
+    """Стан однієї задачі: рахує виклики, токени й вартість, пише кожен виклик рядком agent_calls."""
 
     def __init__(self, task_id, mode: str):
         self.task_id = task_id
@@ -76,18 +78,27 @@ class _Run:
         self.prompt_tokens = 0
         self.completion_tokens = 0
         self.model = None
+        self.costs: list = []
 
-    async def call(self, step: str, prompt, messages: list[dict]):
-        res = await llm.complete(messages, AGENT_MODEL, self.mode, attempt=1)
+    @property
+    def total_cost_usd(self):
+        return pricing.total_cost(self.costs)
+
+    async def call(self, step: str, prompt, messages: list[dict], model: str):
+        res = await llm.complete(messages, model, self.mode, attempt=1)
+        # ціна лише за відповідь моделі: збій (503/429/таймаут) — NULL, а не 0
+        cost = (pricing.cost_usd(res.model_alias, res.usage.prompt_tokens, res.usage.completion_tokens)
+                if res.ok else None)
         self.calls += 1
         self.prompt_tokens += res.usage.prompt_tokens
         self.completion_tokens += res.usage.completion_tokens
         self.model = res.model_alias
+        self.costs.append(cost)
         AGENT_STATE.record_call(res.ok)
         await repo.insert_call(self.task_id, self.calls, step, res.provider, res.model_alias,
                                prompt.name, prompt.version, prompt.sha256,
                                res.usage.prompt_tokens, res.usage.completion_tokens, res.latency_ms,
-                               str(res.status))
+                               str(res.status), cost)
         return res
 
 
@@ -106,27 +117,31 @@ async def _run(task_id, task_text: str, mode: str, base: str) -> dict:
     await repo.create_task(task_id, task_text, mode, base)
     AGENT_STATE.tasks += 1
     run = _Run(task_id, mode)
-    out = {"intent": None, "prompt_version": None, "context_sha256": None, "base_versions": {},
+    out = {"intent": None, "complexity": None, "prompt_version": None, "context_sha256": None, "base_versions": {},
            "diff": None, "patch": None, "gates": [], "error": None}
 
     async def finish(status: str, message: str) -> dict:
         diff = out["diff"]
+        total = run.total_cost_usd
         await repo.finish_task(
             task_id, status=status, message=message, intent=out["intent"], prompt_version=out["prompt_version"],
             context_sha256=out["context_sha256"], base_versions=out["base_versions"],
             patch_diff=None if diff is None else diff.replace("\x00", "\\x00"),
             patch_sha256=None if diff is None else sha256_hex(diff), gate_report=out["gates"],
-            prompt_tokens=run.prompt_tokens, completion_tokens=run.completion_tokens, error=out["error"])
+            prompt_tokens=run.prompt_tokens, completion_tokens=run.completion_tokens, error=out["error"],
+            complexity=out["complexity"], total_cost_usd=total)
         return {"task_id": str(task_id), "status": status, "task_text": task_text, "intent": out["intent"],
-                "mode": mode, "base": base, "prompt": {"name": EDITOR_PROMPT, "version": out["prompt_version"]},
+                "complexity": out["complexity"], "mode": mode, "base": base, "prompt": {"name": EDITOR_PROMPT, "version": out["prompt_version"]},
                 "model": run.model, "calls": run.calls,
                 "tokens": {"prompt": run.prompt_tokens, "completion": run.completion_tokens},
-                "cost_usd": None,   # колонок вартості в hw1 немає — їх додає міграція hw2
+                # JSON number; null — жодного оціненого виклику (наприклад, plan упав із 503)
+                "cost_usd": None if total is None else float(total),
                 "gates": out["gates"], "patch": out["patch"], "message": message}
 
-    # крок 1: plan — намір і файли
+    # крок 1: plan — намір, файли й складність; службовий виклик, тому завжди дешева модель
     planner = await registry.get_active(PLANNER_PROMPT)
-    res = await run.call("plan", planner, context.plan_messages(planner.body, task_text))
+    res = await run.call("plan", planner, context.plan_messages(planner.body, task_text),
+                         routing.route_task("plan"))
     if not res.ok:
         out["error"] = res.error
         return await finish("provider_error", TEXT_PROVIDER_ERROR)
@@ -134,6 +149,7 @@ async def _run(task_id, task_text: str, mode: str, base: str) -> dict:
     if plan is None:
         return await finish("needs_clarification", TEXT_CLARIFY)
     out["intent"] = plan["intent"]
+    out["complexity"] = routing.task_complexity(task_text, plan["complexity"])
     # лише файли зі списку дозволених і без повторів: editor не побачить нічого поза списком
     wanted = [p for p in dict.fromkeys(plan["files"]) if p in ALLOWED_PATHS]
     if plan["intent"] == "unknown" or not wanted:
@@ -144,10 +160,11 @@ async def _run(task_id, task_text: str, mode: str, base: str) -> dict:
         return await finish("needs_clarification", TEXT_CLARIFY)
     out["context_sha256"], out["base_versions"] = context.digest(files, context.history(files))
 
-    # крок 2: propose — diff до цих файлів
+    # крок 2: propose — diff до цих файлів; модель за складністю: simple -> fake-mini, complex -> fake-strong
     editor = await registry.get_active(EDITOR_PROMPT)
     out["prompt_version"] = editor.version
-    res = await run.call("propose", editor, context.propose_messages(editor.body, task_text, files))
+    res = await run.call("propose", editor, context.propose_messages(editor.body, task_text, files),
+                         routing.route_task("propose", out["complexity"]))
     if not res.ok:
         out["error"] = res.error
         return await finish("provider_error", TEXT_PROVIDER_ERROR)

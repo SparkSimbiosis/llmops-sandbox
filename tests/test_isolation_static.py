@@ -71,7 +71,8 @@ def read(p: pathlib.Path) -> str:
 
 def test_agent_module_set_is_what_we_expect():
     names = {dotted(p) for p in AGENT_FILES}
-    assert {"sandbox.agent.pipeline", "sandbox.agent.repo", "sandbox.llm.fake_provider",
+    assert {"sandbox.agent.pipeline", "sandbox.agent.repo", "sandbox.agent.routing", "sandbox.agent.pricing",
+            "sandbox.llm.fake_provider",
             "sandbox.llm.provider_router", "sandbox.api.routes_agent"} <= names
 
 
