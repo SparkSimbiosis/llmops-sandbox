@@ -5,8 +5,7 @@ import os
 
 log = logging.getLogger("sandbox.agent")
 
-# hw1: обидва кроки (plan і propose) йдуть на дешеву модель; маршрутизація за складністю — з hw2
-AGENT_MODEL = "fake-mini"
+# hw2: модель для кожного кроку обирає sandbox/agent/routing.py (plan -> fake-mini, propose — за складністю)
 
 PLANNER_PROMPT = "agent-planner"
 EDITOR_PROMPT = "agent-editor"
@@ -39,6 +38,9 @@ def _int_env(name: str, default: int) -> int:
         log.warning("agent setting %s is not an integer, using %d", name, default)
         return default
 
+
+# бюджет реальних грошей агента: до hw4 коду REAL немає, тому 0 — будь-який REAL-виклик був би заблокований
+AGENT_REAL_BUDGET_USD = 0.0
 
 # маркер __delay: неблокуюча пауза в мілісекундах (у тестах 0)
 AGENT_FAKE_DELAY_MS = _int_env("AGENT_FAKE_DELAY_MS", 2000)

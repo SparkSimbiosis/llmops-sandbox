@@ -1,6 +1,7 @@
 """Маршрути dev-агента — усі під /agent/*. Курсова консоль їх не читає, курсові плитки від них не залежать.
 
 hw1: реєстр агентських промптів (список, activate, rollback), файли фейкового сайту, задачі.
+hw2: складність і вартість у задачах, GET /agent/cost (сума по agent_calls; курсовий /cost — окремо).
 Недоступна агентська БД (зокрема відсутня схема agent_*) -> 503 {"error":"agent_db_unavailable"}.
 """
 
@@ -12,15 +13,21 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from sandbox.agent import pipeline
+from sandbox.agent import pipeline, pricing
 from sandbox.agent.patches import diff_paths
 from sandbox.agent.repo import AgentDbUnavailable
-from sandbox.agent.settings import AGENT_PROVIDER_MODE, EDITOR_PROMPT, TASK_MAX_CHARS, RealModeDisabled, resolve_mode
+from sandbox.agent.settings import (AGENT_PROVIDER_MODE, AGENT_REAL_BUDGET_USD, EDITOR_PROMPT, TASK_MAX_CHARS,
+                                    RealModeDisabled, resolve_mode)
 
 router = APIRouter(prefix="/agent")
 
 DB_DOWN = {"error": "agent_db_unavailable"}
 NOT_FOUND = {"error": "not found"}
+
+
+def _usd(value) -> float | None:
+    # Decimal з NUMERIC -> JSON number; NULL лишається null (модель без ціни або відповіді не було)
+    return None if value is None else float(value)
 
 
 class TaskIn(BaseModel):
@@ -120,7 +127,7 @@ async def list_tasks(limit: int = Query(default=20, ge=1, le=100)):
         return JSONResponse(DB_DOWN, status_code=503)
     return {"tasks": [{"task_id": str(r["task_id"]), "created_at": r["created_at"].isoformat(),
                        "status": r["status"], "intent": r["intent"], "model": r["model"],
-                       "cost_usd": None}            # вартість — з hw2
+                       "cost_usd": _usd(r["total_cost_usd"])}     # задачі до міграції hw2 — null
                       for r in rows]}
 
 
@@ -141,15 +148,30 @@ async def get_task(task_id: str):
               "attempt": 1,                 # fallback-спроби з'являться в hw4; до того кожен крок — одна спроба
               "provider": c["provider"], "model": c["model"], "prompt_version": c["prompt_version"],
               "prompt_sha256": c["prompt_sha256"], "prompt_tokens": c["prompt_tokens"],
-              "completion_tokens": c["completion_tokens"], "latency_ms": c["latency_ms"], "status": c["status"]}
+              "completion_tokens": c["completion_tokens"], "cost_usd": _usd(c["cost_usd"]),
+              "latency_ms": c["latency_ms"], "status": c["status"]}
              for c in t["calls"]]
     return {"task_id": str(t["task_id"]), "created_at": t["created_at"].isoformat(),
             "updated_at": t["updated_at"].isoformat(), "status": t["status"], "task_text": t["task_text"],
-            "intent": t["intent"], "mode": t["mode"], "base": t["base"],
+            "intent": t["intent"], "complexity": t["complexity"], "mode": t["mode"], "base": t["base"],
             "prompt": {"name": EDITOR_PROMPT, "version": t["prompt_version"]},
             "model": calls[-1]["model"] if calls else None,
             "tokens": {"prompt": t["total_prompt_tokens"], "completion": t["total_completion_tokens"]},
-            "cost_usd": None, "gates": t["gate_report"],
+            "cost_usd": _usd(t["total_cost_usd"]), "gates": t["gate_report"],
             "patch": None if diff is None else {"files": diff_paths(diff), "sha256": t["patch_sha256"], "diff": diff},
             "message": t["message"], "error": t["error"], "base_versions": t["base_versions"],
             "context_sha256": t["context_sha256"], "calls": calls}
+
+
+@router.get("/cost")
+async def agent_cost():
+    """Вартість агента за сьогодні: SUM по agent_calls. Долари fake-моделей синтетичні (pricing.fake),
+    тому бюджету для них немає; real_budget_usd — бюджет реальних грошей (до hw4 = 0)."""
+    try:
+        c = await pipeline.repo.cost_today()
+    except AgentDbUnavailable:
+        return JSONResponse(DB_DOWN, status_code=503)
+    return {"pricing": pricing.PRICING, "today_usd": float(c["today_usd"]),
+            "real_today_usd": float(c["real_today_usd"]), "real_budget_usd": float(AGENT_REAL_BUDGET_USD),
+            "by_model": [{"model": m["model"], "calls": m["calls"], "cost_usd": float(m["cost_usd"])}
+                         for m in c["by_model"]]}

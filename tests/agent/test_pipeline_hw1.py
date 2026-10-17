@@ -1,5 +1,7 @@
 """Конвеєр агента hw1: 1 задача = 2 виклики (plan, propose) з версіями промптів у кожному рядку,
-статуси задачі, 403 на real, 422 на невалідне тіло, 503 при недоступній агентській БД."""
+статуси задачі, 403 на real, 422 на невалідне тіло, 503 при недоступній агентській БД.
+З hw2 у відповіді є complexity і числовий cost_usd, а propose складної задачі йде на fake-strong
+(деталі маршрутизації й вартості — test_agent_routing.py і test_agent_cost.py)."""
 
 import json
 import pathlib
@@ -20,10 +22,10 @@ from tests.agent.memory_repo import MemoryAgentRepo, prompt_body, seed_files
 client = TestClient(app)
 EX = pathlib.Path(__file__).resolve().parents[2] / "examples" / "agent"
 
-HW1_KEYS = {"task_id", "status", "task_text", "intent", "mode", "base", "prompt", "model", "calls", "tokens",
-            "cost_usd", "gates", "patch", "message"}
+TASK_KEYS = {"task_id", "status", "task_text", "intent", "complexity", "mode", "base", "prompt", "model", "calls",
+             "tokens", "cost_usd", "gates", "patch", "message"}
 CALL_KEYS = {"seq", "step", "attempt", "provider", "model", "prompt_version", "prompt_sha256", "prompt_tokens",
-             "completion_tokens", "latency_ms", "status"}
+             "completion_tokens", "cost_usd", "latency_ms", "status"}
 
 
 def use_repo(monkeypatch, mem):
@@ -50,9 +52,10 @@ def test_header_task_is_proposed_with_two_versioned_calls(mem):
     r = post_task(example("task_header_login_uk.json"))
     assert r.status_code == 200
     d = r.json()
-    assert set(d) == HW1_KEYS
-    assert (d["status"], d["intent"], d["model"], d["calls"], d["cost_usd"]) == \
-        ("proposed", "header_login_button", "fake-mini", 2, None)
+    assert set(d) == TASK_KEYS
+    assert (d["status"], d["intent"], d["complexity"], d["model"], d["calls"]) == \
+        ("proposed", "header_login_button", "complex", "fake-strong", 2)
+    assert isinstance(d["cost_usd"], float) and d["cost_usd"] > 0
     assert (d["mode"], d["base"], d["prompt"]) == ("mock", "current", {"name": "agent-editor", "version": "v2"})
     assert d["gates"] == [{"gate": "parse_ok", "ok": True}, {"gate": "allowed_paths", "ok": True}]
     assert d["patch"]["files"] == ["demo-site/header.html", "demo-site/styles.css"]
@@ -65,7 +68,7 @@ def test_header_task_is_proposed_with_two_versioned_calls(mem):
     assert [(c["seq"], c["step"], c["provider"], c["model"], c["prompt_name"], c["prompt_version"],
              c["prompt_tokens"] > 0, c["status"]) for c in calls] == [
         (1, "plan", "fake", "fake-mini", "agent-planner", "v1", True, "200"),
-        (2, "propose", "fake", "fake-mini", "agent-editor", "v2", True, "200")]
+        (2, "propose", "fake", "fake-strong", "agent-editor", "v2", True, "200")]
     assert calls[0]["prompt_sha256"] == sha256_hex(prompt_body("agent-planner", "v1"))
     assert calls[1]["prompt_sha256"] == sha256_hex(prompt_body("agent-editor", "v2"))
 
@@ -167,11 +170,11 @@ def test_get_task_with_calls(mem):
     r = client.get(f"/agent/tasks/{d['task_id']}")
     assert r.status_code == 200
     t = r.json()
-    assert (t["status"], t["intent"], t["model"], t["cost_usd"]) == \
-        ("proposed", "header_login_button", "fake-mini", None)
+    assert (t["status"], t["intent"], t["complexity"], t["model"], t["cost_usd"]) == \
+        ("proposed", "header_login_button", "complex", "fake-strong", d["cost_usd"])
     assert t["patch"]["files"] == ["demo-site/header.html", "demo-site/styles.css"]
     assert t["patch"]["sha256"] == d["patch"]["sha256"]
-    assert [set(c) for c in t["calls"]] == [CALL_KEYS, CALL_KEYS]          # cost_usd/cache_hit — з hw2/hw3
+    assert [set(c) for c in t["calls"]] == [CALL_KEYS, CALL_KEYS]          # cost_usd — з hw2, cache_hit — з hw3
     assert [(c["seq"], c["step"], c["attempt"], c["prompt_version"]) for c in t["calls"]] == \
         [(1, "plan", 1, "v1"), (2, "propose", 1, "v2")]
 
@@ -182,13 +185,15 @@ def test_get_unknown_task_is_404(mem, task_id):
     assert r.status_code == 404 and r.json() == {"error": "not found"}
 
 
-def test_list_tasks_newest_first_with_null_cost(mem):
+def test_list_tasks_newest_first_with_cost(mem):
     first = post_task(example("task_footer_year.json")).json()
     second = post_task(example("task_unknown.json")).json()
     rows = client.get("/agent/tasks?limit=20").json()["tasks"]
     assert [r["task_id"] for r in rows] == [second["task_id"], first["task_id"]]
     assert set(rows[0]) == {"task_id", "created_at", "status", "intent", "model", "cost_usd"}
-    assert rows[1]["model"] == "fake-mini" and all(r["cost_usd"] is None for r in rows)
+    assert rows[1]["model"] == "fake-mini"
+    assert [r["cost_usd"] for r in rows] == [second["cost_usd"], first["cost_usd"]]
+    assert all(isinstance(r["cost_usd"], float) and r["cost_usd"] > 0 for r in rows)
     assert len(client.get("/agent/tasks?limit=1").json()["tasks"]) == 1
     assert client.get("/agent/tasks?limit=0").status_code == 422
 

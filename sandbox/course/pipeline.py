@@ -10,9 +10,11 @@ from uuid import uuid4
 
 from sandbox.core.config import DATABASE_URL, GATEWAY_TIMEOUT_S, GATEWAY_URL, MODEL
 from sandbox.llm.gateway_provider import GatewayProvider
+from sandbox.llm.pricing import cost_usd as price
+from sandbox.llm.router import route
 from sandbox.prompts.registry import PROMPT_NAME, Registry
 from sandbox.storage.db import Database, DbUnavailable
-from sandbox.storage.repositories import PromptsRepo, RequestsRepo
+from sandbox.storage.repositories import CostRepo, PromptsRepo, RequestsRepo
 
 log = logging.getLogger("sandbox.chat")
 
@@ -22,6 +24,7 @@ db = Database(DATABASE_URL)
 gateway = GatewayProvider(name="course", base_url=GATEWAY_URL)
 requests_repo = RequestsRepo(db)
 registry = Registry(PromptsRepo(db))
+cost_repo = CostRepo(db)
 
 
 async def handle_chat(message: str) -> tuple[int, dict]:
@@ -37,7 +40,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     except DbUnavailable:
         log.warning("chat request_id=%s prompt registry unavailable", request_id)
         return 503, {"request_id": str(request_id), "error": "prompt_registry_unavailable"}
-    model = MODEL                      # W2 routing: route(text, MODEL)
+    model = route(text, MODEL)         # W2 routing: дешева модель для звичайних питань, сильна — для ескалацій
                                        # W3 cache: lookup за повним ключем (модель, промпт, повідомлення)
     res = await gateway.complete(
         [{"role": "system", "content": active.body}, {"role": "user", "content": text}],
@@ -47,7 +50,8 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     # модель попросила інструмент — поки лише читаємо назву, не виконуємо (виконання — W3/W4)
     tool = res.tool_calls[0]["name"] if res.ok and res.tool_calls else None
     latency_ms = int((perf_counter() - t0) * 1000)
-    cost_usd = None                    # W2 routing: tokens * ціна моделі -> cost_usd
+    # W2 routing: tokens * ціна моделі; без відповіді моделі вартості немає (NULL), а не 0
+    cost_usd = price(model, res.usage) if res.ok else None
 
     # один рядок у requests ДО відповіді: з нього живуть observability і cost;
     # prompt_version — саме та версія, що пішла в модель

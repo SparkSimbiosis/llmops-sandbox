@@ -180,31 +180,50 @@ class AgentRepo:
 
     async def insert_call(self, task_id, seq: int, step: str, provider: str, model: str,
                           prompt_name: str, prompt_version: str, prompt_sha256: str,
-                          prompt_tokens: int, completion_tokens: int, latency_ms: int, status: str) -> None:
+                          prompt_tokens: int, completion_tokens: int, latency_ms: int, status: str,
+                          cost_usd) -> None:
+        # cost_usd — Decimal або None (модель без ціни чи відповіді не було); колонка — з міграції hw2
         async with self._db.connection() as conn:
             await conn.execute(
                 "INSERT INTO agent_calls (task_id, seq, step, provider, model, prompt_name, prompt_version, "
-                "prompt_sha256, prompt_tokens, completion_tokens, latency_ms, status) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                "prompt_sha256, prompt_tokens, completion_tokens, latency_ms, status, cost_usd) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
                 task_id, seq, step, provider, model, prompt_name, prompt_version, prompt_sha256,
-                prompt_tokens, completion_tokens, latency_ms, status)
+                prompt_tokens, completion_tokens, latency_ms, status, cost_usd)
 
     async def finish_task(self, task_id, *, status: str, message: str, intent, prompt_version,
                           context_sha256, base_versions: dict, patch_diff, patch_sha256,
-                          gate_report: list, prompt_tokens: int, completion_tokens: int, error) -> None:
+                          gate_report: list, prompt_tokens: int, completion_tokens: int, error,
+                          complexity, total_cost_usd) -> None:
         async with self._db.connection() as conn:
             await conn.execute(
                 "UPDATE agent_tasks SET status = $2, message = $3, intent = $4, prompt_version = $5, "
                 "context_sha256 = $6, base_versions = $7::jsonb, patch_diff = $8, patch_sha256 = $9, "
                 "gate_report = $10::jsonb, total_prompt_tokens = $11, total_completion_tokens = $12, "
-                "error = $13, updated_at = now() WHERE task_id = $1",
+                "error = $13, complexity = $14, total_cost_usd = $15, updated_at = now() WHERE task_id = $1",
                 task_id, status, message, intent, prompt_version, context_sha256, _jsonb(base_versions),
-                patch_diff, patch_sha256, _jsonb(gate_report), prompt_tokens, completion_tokens, error)
+                patch_diff, patch_sha256, _jsonb(gate_report), prompt_tokens, completion_tokens, error,
+                complexity, total_cost_usd)
+
+    async def cost_today(self) -> dict:
+        """Вартість викликів агента за сьогодні (CURRENT_DATE — за UTC сервера): лише agent_calls,
+        курсову requests не читаємо. real — виклики задач із mode='real' (до hw4 їх немає)."""
+        async with self._db.connection() as conn:
+            totals = await conn.fetchrow(
+                "SELECT COALESCE(SUM(c.cost_usd), 0) AS today_usd, "
+                "COALESCE(SUM(c.cost_usd) FILTER (WHERE t.mode = 'real'), 0) AS real_today_usd "
+                "FROM agent_calls c JOIN agent_tasks t ON t.task_id = c.task_id "
+                "WHERE c.created_at::date = CURRENT_DATE")
+            by_model = await conn.fetch(
+                "SELECT model, count(*) AS calls, COALESCE(SUM(cost_usd), 0) AS cost_usd FROM agent_calls "
+                "WHERE created_at::date = CURRENT_DATE GROUP BY model ORDER BY cost_usd DESC, model")
+        return {"today_usd": totals["today_usd"], "real_today_usd": totals["real_today_usd"],
+                "by_model": [dict(r) for r in by_model]}
 
     async def list_tasks(self, limit: int) -> list[dict]:
         async with self._db.connection() as conn:
             rows = await conn.fetch(
-                "SELECT t.task_id, t.created_at, t.status, t.intent, "
+                "SELECT t.task_id, t.created_at, t.status, t.intent, t.total_cost_usd, "
                 "(SELECT c.model FROM agent_calls c WHERE c.task_id = t.task_id ORDER BY c.seq DESC LIMIT 1) AS model "
                 "FROM agent_tasks t ORDER BY t.created_at DESC LIMIT $1", limit)
         return [dict(r) for r in rows]
@@ -214,12 +233,14 @@ class AgentRepo:
             row = await conn.fetchrow(
                 "SELECT task_id, created_at, updated_at, task_text, intent, mode, base, status, message, "
                 "prompt_version, context_sha256, base_versions, patch_diff, patch_sha256, gate_report, "
-                "total_prompt_tokens, total_completion_tokens, error FROM agent_tasks WHERE task_id = $1", task_id)
+                "total_prompt_tokens, total_completion_tokens, error, complexity, total_cost_usd "
+                "FROM agent_tasks WHERE task_id = $1", task_id)
             if row is None:
                 return None
             calls = await conn.fetch(
                 "SELECT seq, step, provider, model, prompt_name, prompt_version, prompt_sha256, prompt_tokens, "
-                "completion_tokens, latency_ms, status FROM agent_calls WHERE task_id = $1 ORDER BY seq", task_id)
+                "completion_tokens, latency_ms, status, cost_usd FROM agent_calls WHERE task_id = $1 ORDER BY seq",
+                task_id)
         task = dict(row)
         task["base_versions"] = _from_jsonb(task["base_versions"], {})
         task["gate_report"] = _from_jsonb(task["gate_report"], [])

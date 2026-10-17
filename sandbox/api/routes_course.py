@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from sandbox.core.config import BUDGET_USD
 from sandbox.course import pipeline
 from sandbox.storage.db import DbUnavailable
 
@@ -37,7 +38,12 @@ async def observability():
 
 @router.get("/cost")
 async def cost():
-    return {"todo": "sum cost_usd for today + budget"}  # W2
+    # W2: плитка «Вартість сьогодні»; числа, не рядки — консоль робить toFixed(2)
+    try:
+        today = await pipeline.cost_repo.today_usd()
+    except DbUnavailable:
+        return JSONResponse({"error": "db_unavailable"}, status_code=503)
+    return {"today_usd": today, "budget_usd": BUDGET_USD}
 
 
 @router.get("/prompts")
