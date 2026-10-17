@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from sandbox.approvals.queue import QUEUE
 from sandbox.cache.response_cache import CACHE
 from sandbox.core.config import BUDGET_USD
 from sandbox.course import pipeline
@@ -85,4 +86,14 @@ async def providers():
 
 @router.get("/approvals")
 async def approvals():
-    return {"todo": "pending HITL approvals"}           # W4
+    # W4: картка Approvals · HITL читає pending[].id і .action
+    return QUEUE.snapshot()
+
+
+@router.post("/approvals/{approval_id}/approve")
+async def approve(approval_id: str):
+    item = QUEUE.approve(approval_id)
+    if item is None:
+        # повтор або невідомий id: дія вже спожита або її не було — другого тікета немає
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"id": item.id, "action": item.action, "result": item.result}

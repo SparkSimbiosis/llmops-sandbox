@@ -24,7 +24,6 @@ from sandbox.storage.repositories import RequestsRepo
 PENDING_STUBS = {
     "/observability": "aggregate from requests table",
     "/providers": "provider health",
-    "/approvals": "pending HITL approvals",
 }
 
 
@@ -131,7 +130,7 @@ def test_gateway_503_gives_unavailable_text_and_status(wire):
     _, repo, set_reply = wire
     set_reply(lambda req: httpx.Response(503, json={"error": "upstream"}))
     body = client.post("/chat", json={"message": "x"}).json()
-    assert body["content"] == "Сервіс тимчасово недоступний." and body["tool"] is None
+    assert body["content"] == pipeline.DEGRADATION_TEXT and body["tool"] is None
     assert repo.rows[-1]["status"] == "503" and repo.rows[-1]["prompt_tokens"] == 0
 
 
@@ -143,7 +142,7 @@ def test_network_error_logs_status_zero(wire):
 
     set_reply(boom)
     body = client.post("/chat", json={"message": "x"}).json()
-    assert body["content"] == "Сервіс тимчасово недоступний."
+    assert body["content"] == pipeline.DEGRADATION_TEXT
     assert repo.rows[-1]["status"] == "0"
 
 
@@ -152,8 +151,9 @@ def test_200_without_content_or_usage_is_unavailable_with_status_200(wire, kwarg
     _, repo, set_reply = wire
     set_reply(lambda req: httpx.Response(200, json=completion(**kwargs)))
     body = client.post("/chat", json={"message": "x"}).json()
-    assert body["content"] == "Сервіс тимчасово недоступний."
-    assert repo.rows[-1]["status"] == "200" and repo.rows[-1]["prompt_tokens"] == 0
+    assert body["content"] == pipeline.DEGRADATION_TEXT
+    # з hw4: нерозбірлива відповідь 200 після всього ланцюга логуються як 502 (а не 200, як у стартері)
+    assert repo.rows[-1]["status"] == "502" and repo.rows[-1]["prompt_tokens"] == 0
 
 
 def test_null_content_becomes_empty_string(wire):
@@ -169,7 +169,7 @@ def test_tool_call_name_is_returned(wire):
         200, json=completion(content="Створюю тікет і ескалюю на оператора.", tool_calls=["create_ticket"])))
     body = client.post("/chat", json={"message": "Хочу повернути гроші"}).json()
     assert body["tool"] == "create_ticket"
-    assert body["content"] == "Створюю тікет і ескалюю на оператора."   # дія не виконана
+    assert body["content"] == pipeline.HITL_TEXT   # з hw4 дія не виконується — заявка в черзі /approvals
     assert len(repo.rows) == 1
 
 

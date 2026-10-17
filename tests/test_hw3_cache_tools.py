@@ -81,9 +81,10 @@ def test_failed_answer_is_not_cached(stack):
     calls, _, reply = stack
     reply["status"] = 503
     client.post("/chat", json={"message": "x"})
+    failed = len(calls)                      # з hw4 збій проходить увесь ланцюг моделей
     reply["status"] = 200
     client.post("/chat", json={"message": "x"})
-    assert len(calls) == 2
+    assert len(calls) == failed + 1          # повтор пішов у модель: збій не потрапив у кеш
 
 
 def test_lookup_order_result_is_in_answer_and_on_hit(stack):
