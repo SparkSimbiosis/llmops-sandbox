@@ -133,6 +133,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
             STATS.consecutive_failures = 0     # будь-яка справжня відповідь провайдера скидає серію збоїв
         else:
             STATS.consecutive_failures += 1    # впав увесь ланцюг (для /providers, hw5)
+        routed = model
         model = res.model_alias                # у лог — модель, яка фактично відповідала (або остання спробувана)
         raw = res.content if res.ok else None
         tool = res.tool_calls[0]["name"] if res.ok and res.tool_calls else None
@@ -145,9 +146,11 @@ async def handle_chat(message: str) -> tuple[int, dict]:
         # кешуємо лише успішну відповідь моделі; дії з наслідками (create_ticket) — ніколи (HITL — hw4)
         if res.ok and is_garbage(raw, tool):
             STATS.errors["garbage"] += 1       # 200 від провайдера, але по суті сміття — у кеш не кладемо
-        elif res.ok and tool != "create_ticket":
+        # кешуємо лише відповідь моделі, яку обрав роутер: відповідь запасної — тимчасовий обхід збою,
+        # під ключем основної моделі вона роздавалася б і після відновлення провайдера (до TTL)
+        elif res.ok and tool != "create_ticket" and model == routed:
             CACHE.put(key, CachedAnswer(raw, tool, tool_args))
-        if res.ok and tool is None and SEMANTIC.enabled and not is_garbage(raw, tool):
+        if res.ok and tool is None and SEMANTIC.enabled and not is_garbage(raw, tool) and model == routed:
             await SEMANTIC.store(scope, text, raw)   # за змістом — лише відповіді без інструментів
 
     if raw is None:
