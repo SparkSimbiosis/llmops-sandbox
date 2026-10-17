@@ -30,6 +30,23 @@ class RequestsRepo:
             log.exception("requests insert failed request_id=%s", request_id)
 
 
+class CostRepo:
+    """Вартість за сьогодні — чесна сума з requests, округлення робить Postgres (як у перевірці курсу)."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    async def today_usd(self) -> float:
+        try:
+            async with self._db.connection() as conn:
+                value = await conn.fetchval(
+                    "SELECT COALESCE(round(SUM(cost_usd), 4), 0) FROM requests "
+                    "WHERE created_at::date = CURRENT_DATE")
+        except DB_ERRORS as exc:
+            raise DbUnavailable(type(exc).__name__) from exc
+        return float(value)
+
+
 class PromptsRepo:
     """SQL реєстру промптів. Помилки БД -> DbUnavailable: недоступна база — не те саме, що порожній реєстр."""
 

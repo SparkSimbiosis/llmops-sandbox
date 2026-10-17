@@ -6,6 +6,7 @@
 
 import asyncio
 import json
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -21,7 +22,6 @@ from sandbox.storage.repositories import RequestsRepo
 
 # маршрути, що ще не ожили, і їхній дослівний текст заглушки; список скорочується з тижнями
 PENDING_STUBS = {
-    "/cost": "sum cost_usd for today + budget",
     "/observability": "aggregate from requests table",
     "/providers": "provider health",
     "/approvals": "pending HITL approvals",
@@ -116,7 +116,7 @@ def test_chat_shape_and_log_row(wire):
     row = repo.rows[0]
     assert str(row["request_id"]) == body["request_id"]
     assert (row["model"], row["prompt_tokens"], row["completion_tokens"], row["cost_usd"], row["status"]) == \
-        ("mock", 7, 3, None, "200")
+        ("mock-mini", 7, 3, Decimal("0.000003"), "200")
 
 
 def test_payload_has_exactly_model_and_messages(wire):
