@@ -162,13 +162,14 @@ def test_null_content_becomes_empty_string(wire):
     assert client.post("/chat", json={"message": "x"}).json()["content"] == ""
 
 
-def test_tool_call_name_is_returned_not_executed(wire):
+def test_tool_call_name_is_returned(wire):
+    # з hw3 read-only lookup_order виконується (детально — test_hw3_cache_tools.py); create_ticket — ні (hw4)
     _, repo, set_reply = wire
     set_reply(lambda req: httpx.Response(
-        200, json=completion(content="Перевіряю статус вашого замовлення…", tool_calls=["lookup_order"])))
-    body = client.post("/chat", json={"message": "Де моє замовлення #123?"}).json()
-    assert body["tool"] == "lookup_order"
-    assert body["content"] == "Перевіряю статус вашого замовлення…"   # результату інструмента ще немає
+        200, json=completion(content="Створюю тікет і ескалюю на оператора.", tool_calls=["create_ticket"])))
+    body = client.post("/chat", json={"message": "Хочу повернути гроші"}).json()
+    assert body["tool"] == "create_ticket"
+    assert body["content"] == "Створюю тікет і ескалюю на оператора."   # дія не виконана
     assert len(repo.rows) == 1
 
 
