@@ -67,6 +67,24 @@ docker compose -f docker-compose.yml -f demo-ports.yml up --build -d
   `grep -ri "INSERT INTO prompts" sandbox/ tests/ Dockerfile.service` → порожньо, а
   `grep -c "INSERT INTO prompts" db/schema.sql` → `1`.
 
+### Маршрутизація і вартість (hw2)
+
+- Роутер (`sandbox/llm/router.py`): звичайні питання -> `mock-mini`; повернення, скарги, «терміново» -> `mock-strong`.
+  Маркери українською й англійською: `поверн`, `терміново`, `скарг`, `refund`, `urgent`, `complaint`.
+  На реальному ключі (`MODEL=gpt-5-mini` тощо) маршрут вироджується в одну модель.
+- Ціни за 1k токенів (`sandbox/llm/pricing.py`):
+
+  | Модель | Вхід, USD | Вихід, USD |
+  |---|---|---|
+  | `mock`, `mock-mini` | 0.00015 | 0.00060 |
+  | `mock-strong` | 0.00250 | 0.01000 |
+
+  `mock-strong` дорожча за токен приблизно в 16.7 раза. Модель без ціни -> `cost_usd = NULL`, а не 0.
+- `GET /cost` -> `{today_usd, budget_usd}`: `today_usd` = `round(SUM(cost_usd), 4)` за сьогодні з `requests`,
+  `budget_usd` з `BUDGET_USD` (5.0). На mock плитка консолі показує `$0.00` — вона округлює до центів.
+- Запасний порядок моделей — константа `FALLBACK_CHAINS` біля роутера (`mock-strong -> mock-mini -> заглушка`);
+  перемикання по ньому — у hw4.
+
 ### Таблиця паритету зі стартером (`service/Program.cs` → `sandbox/`)
 
 | # | Стартер (C#) | Python |
