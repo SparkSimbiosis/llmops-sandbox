@@ -28,12 +28,20 @@ from sandbox.llm.types import LLMResult, Usage
 from sandbox.observability.stats import STATS
 from sandbox.prompts.registry import PROMPT_NAME, Registry
 from sandbox.storage.db import Database, DbUnavailable
-from sandbox.storage.repositories import CostRepo, PromptsRepo, RequestsRepo
+from sandbox.storage.repositories import CostRepo, ObservabilityRepo, PromptsRepo, RequestsRepo
 from sandbox.tools.runtime import run_read_only
 
 log = logging.getLogger("sandbox.chat")
 
 HITL_TEXT = "Запит на створення тікета передано оператору; тікет буде створено після підтвердження."
+GARBAGE_TEXT = "Не зміг сформулювати змістовну відповідь, спробуйте переформулювати питання."
+
+
+def is_garbage(raw: str | None, tool: str | None) -> bool:
+    # «...» чи «…» без інструмента (порожній content лишається "", як у стартері) — успішна за кодом, але непридатна відповідь (урок 1)
+    return raw is not None and tool is None and raw.strip() != "" and raw.strip(" .…\n\t") == ""
+
+
 DEGRADATION_TEXT = "Вибачте, зараз тимчасові труднощі з обробкою запиту. Будь ласка, спробуйте трохи пізніше."
 
 db = Database(DATABASE_URL)
@@ -44,6 +52,7 @@ registry = Registry(PromptsRepo(db))
 SEMANTIC = SemanticCache(enabled=SEMANTIC_CACHE, redis_client=aioredis.from_url(REDIS_URL, socket_timeout=2),
                          embed_url=EMBEDDINGS_URL, threshold=SEMANTIC_THRESHOLD, ttl_s=CACHE_TTL_S)
 cost_repo = CostRepo(db)
+obs_repo = ObservabilityRepo(db)
 
 
 async def handle_chat(message: str) -> tuple[int, dict]:
@@ -63,6 +72,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     # W4 (опц.) injection: перефразовані атаки ловимо до роутера й моделі — відмова без виклику моделі
     family = detect_injection(text)
     if family is not None:
+        STATS.errors["guardrail_refusal"] += 1   # (опц.) відмова guardrail — окрема причина
         model = route(text, MODEL)
         latency_ms = int((perf_counter() - t0) * 1000)
         await requests_repo.insert_safe(request_id, model, active, latency_ms, Usage(), Decimal("0"), "200")
@@ -117,6 +127,8 @@ async def handle_chat(message: str) -> tuple[int, dict]:
             # усі моделі ланцюга з відкритим breaker: у модель не ходили, одразу заглушка
             res = LLMResult(ok=False, status=503, content="", model_alias=FALLBACK_CHAINS[model][-1],
                             error="circuit_open")
+        if not res.ok:
+            STATS.count_failure(res)           # (опц.) причина збою: 429 / 5xx / мережа / circuit
         if res.ok:
             STATS.consecutive_failures = 0     # будь-яка справжня відповідь провайдера скидає серію збоїв
         else:
@@ -131,14 +143,19 @@ async def handle_chat(message: str) -> tuple[int, dict]:
         # W2 routing: tokens * ціна моделі; без відповіді моделі вартості немає (NULL), а не 0
         cost_usd = price(model, res.usage) if res.ok else None
         # кешуємо лише успішну відповідь моделі; дії з наслідками (create_ticket) — ніколи (HITL — hw4)
-        if res.ok and tool != "create_ticket":
+        if res.ok and is_garbage(raw, tool):
+            STATS.errors["garbage"] += 1       # 200 від провайдера, але по суті сміття — у кеш не кладемо
+        elif res.ok and tool != "create_ticket":
             CACHE.put(key, CachedAnswer(raw, tool, tool_args))
-        if res.ok and tool is None and SEMANTIC.enabled:
+        if res.ok and tool is None and SEMANTIC.enabled and not is_garbage(raw, tool):
             await SEMANTIC.store(scope, text, raw)   # за змістом — лише відповіді без інструментів
 
     if raw is None:
         # власний текст без вигаданих фактів: ні статусу замовлення, ні номера тікета, ні «зроблено»
         content = DEGRADATION_TEXT
+    elif is_garbage(raw, tool):
+        # W5: формально успіх (200), по суті «...» — чесний текст, окремий від заглушки hw4
+        content = GARBAGE_TEXT
     else:
         content = raw
         # W3 tools: read-only інструмент виконуємо (і на hit теж — дані можуть змінитися), результат — у відповідь

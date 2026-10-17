@@ -58,6 +58,28 @@ class CostRepo:
         return float(value)
 
 
+class ObservabilityRepo:
+    """Три числа з requests за сьогодні — ті самі SQL, якими ментор звіряє плитки (NULLIF — порожній день не ділить на нуль)."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    async def today(self) -> dict:
+        try:
+            async with self._db.connection() as conn:
+                row = await conn.fetchrow(
+                    "SELECT count(*)::int AS requests, "
+                    "COALESCE(round(100.0 * count(*) FILTER (WHERE status <> '200') / NULLIF(count(*), 0), 1), 0) "
+                    "AS error_rate_pct, "
+                    "COALESCE(round(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms)), 0) AS p95_ms "
+                    "FROM requests WHERE created_at::date = CURRENT_DATE")
+        except DB_ERRORS as exc:
+            raise DbUnavailable(type(exc).__name__) from exc
+        # JSON-числа, не рядки: консоль показує «—», якщо поле не число
+        return {"requests": int(row["requests"]), "p95_ms": int(row["p95_ms"]),
+                "error_rate_pct": float(row["error_rate_pct"])}
+
+
 class PromptsRepo:
     """SQL реєстру промптів. Помилки БД -> DbUnavailable: недоступна база — не те саме, що порожній реєстр."""
 

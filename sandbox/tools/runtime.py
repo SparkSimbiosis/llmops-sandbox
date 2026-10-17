@@ -6,6 +6,7 @@ import logging
 import secrets
 
 from sandbox.core.config import TOOL_TIMEOUT_S
+from sandbox.observability.stats import STATS
 
 log = logging.getLogger("sandbox.tools")
 
@@ -39,12 +40,14 @@ async def run_read_only(name: str, arguments: str = "{}") -> str | None:
     args = validate_args(name, arguments)
     if args is None:
         log.warning("tool name=%s refused: invalid arguments", name)   # запис про відмову, а не виконання
+        STATS.errors["tool_failed"] += 1
         return TOOL_FAILED_TEXT
     try:
         # (опц. hw3) timeout: інструмент — частина відповіді, краще чесно «не вдалося», ніж тримати чат
         result = await asyncio.wait_for(asyncio.to_thread(fn, args), timeout=TOOL_TIMEOUT_S)
     except asyncio.TimeoutError:
         log.warning("tool name=%s timeout after %.1fs", name, TOOL_TIMEOUT_S)
+        STATS.errors["tool_failed"] += 1
         return TOOL_FAILED_TEXT
     log.info("tool name=%s ok", name)
     return result
