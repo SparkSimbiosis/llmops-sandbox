@@ -9,7 +9,9 @@ from decimal import Decimal
 from time import perf_counter
 from uuid import uuid4
 
+from sandbox.approvals.queue import QUEUE
 from sandbox.cache.response_cache import CACHE, CachedAnswer
+from sandbox.core.pii import mask_pii
 from sandbox.core.config import DATABASE_URL, GATEWAY_TIMEOUT_S, GATEWAY_URL, MODEL
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.llm.pricing import cost_usd as price
@@ -23,6 +25,7 @@ from sandbox.tools.runtime import run_read_only
 
 log = logging.getLogger("sandbox.chat")
 
+HITL_TEXT = "Запит на створення тікета передано оператору; тікет буде створено після підтвердження."
 DEGRADATION_TEXT = "Вибачте, зараз тимчасові труднощі з обробкою запиту. Будь ласка, спробуйте трохи пізніше."
 
 db = Database(DATABASE_URL)
@@ -38,7 +41,8 @@ async def handle_chat(message: str) -> tuple[int, dict]:
     t0 = perf_counter()
     request_id = uuid4()
 
-    text = message                     # W4 fallback/HITL/PII: mask_pii(text) — першою операцією
+    # W4 fallback/HITL/PII: маскування email — першою операцією, до роутера, ключа кешу і моделі
+    text = mask_pii(message)
     # W1: промпт — активна версія з реєстру; порожній реєстр -> чесний дефолт з версією 'none'
     try:
         active = await registry.get_active(PROMPT_NAME)
@@ -86,6 +90,10 @@ async def handle_chat(message: str) -> tuple[int, dict]:
         content = raw
         # W3 tools: read-only інструмент виконуємо (і на hit теж — дані можуть змінитися), результат — у відповідь
         result = run_read_only(tool) if tool else None
+        if tool == "create_ticket":
+            # W4 HITL: незворотна дія не виконується в /chat — заявка йде в чергу /approvals
+            QUEUE.add("create_ticket", str(request_id))
+            content = HITL_TEXT
         if result is not None:
             content = f"{raw} ({result})"
     latency_ms = int((perf_counter() - t0) * 1000)

@@ -24,7 +24,6 @@ from sandbox.storage.repositories import RequestsRepo
 PENDING_STUBS = {
     "/observability": "aggregate from requests table",
     "/providers": "provider health",
-    "/approvals": "pending HITL approvals",
 }
 
 
@@ -170,7 +169,7 @@ def test_tool_call_name_is_returned(wire):
         200, json=completion(content="Створюю тікет і ескалюю на оператора.", tool_calls=["create_ticket"])))
     body = client.post("/chat", json={"message": "Хочу повернути гроші"}).json()
     assert body["tool"] == "create_ticket"
-    assert body["content"] == "Створюю тікет і ескалюю на оператора."   # дія не виконана
+    assert body["content"] == pipeline.HITL_TEXT   # з hw4 дія не виконується — заявка в черзі /approvals
     assert len(repo.rows) == 1
 
 
