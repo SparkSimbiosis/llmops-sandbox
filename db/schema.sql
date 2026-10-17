@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS prompts (
 -- seed реєстру (W1): рівно дві версії, активна — v2. Живе тут, у міграції, а не в коді сервісу.
 -- виконується лише на чистому томі: docker compose down -v && docker compose up -d
 INSERT INTO prompts (name, version, body, active) VALUES
-    ('support-system', 'v1', 'You are an assistant.', true),
-    ('support-system', 'v2', 'You are a support assistant. Be concise and helpful.', false)
+    ('support-system', 'v1', 'You are an assistant.', false),
+    ('support-system', 'v2', 'You are a support assistant. Be concise and helpful.', true)
 ON CONFLICT (name, version) DO NOTHING;
 
 -- audit trail активацій (W1, опційно): хто, коли і з якої версії перемкнув.
