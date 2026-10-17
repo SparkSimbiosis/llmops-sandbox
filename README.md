@@ -98,6 +98,67 @@ docker compose -f docker-compose.yml -f demo-ports.yml up --build -d
 
 Відмінності, видимі ззовні, лише дві: `422` замість `400` на невалідне тіло і `503`, коли БД реєстру недоступна.
 
+## Dev-agent (поза критеріями CHECKS)
+
+Демо-сценарій поруч із курсом: ті самі механізми уроків, показані вдруге в іншому контексті. Агент
+отримує задачу на зразок «додай кнопку логіну в шапку», планує зміну і пропонує unified diff до фейкового
+навчального сайту `demo-site/` (чотири файли, що зберігаються в БД). Критерії `homework/CHECKS.md` агента
+не стосуються, і курсових перевірок він не зачіпає.
+
+**Ізоляція від курсу.**
+- Власні таблиці `agent_*` — блок `-- === hw1: agent ... ===` у кінці `db/schema.sql`. Курсові `requests`,
+  `prompts` і `prompt_activations` агент не читає й не пише. Seed агента йде в `agent_prompts`, тому пошук
+  `INSERT INTO prompts` і далі знаходить лише курсовий seed.
+- Власні маршрути `/agent/*`, власний лінивий пул БД (до 3 з'єднань), власні лічильники в пам'яті.
+  `/observability`, `/cost`, `/providers`, `/approvals` і курсові evals від агента не залежать.
+- У `sandbox/main.py` — один guarded-блок: `AGENT_ENABLED=0` вимикає `/agent/*`, а збій імпорту агента
+  не валить курс. Якщо агентських таблиць немає, `/agent/*` відповідають `503`, а `/chat` і `/health`
+  працюють як завжди.
+- Ізоляцію перевіряють `tests/test_isolation_static.py` (імпорти, SQL, схема, guarded-блок) і
+  `tests/test_isolation_runtime.py` (прогони агента не торкаються курсових репозиторіїв, gateway і стану).
+
+**Що вміє в hw1** — той самий механізм, що й курс: реєстр промптів і версія в кожному рядку логу.
+- Реєстр агентських промптів `agent-planner` v1 і `agent-editor` v1/v2 (активна v2):
+  `GET /agent/prompts`; `POST /agent/prompts/{name}/{version}/activate` — з аудитом у
+  `agent_prompt_activations`, невідома версія → `404` без змін; `POST /agent/prompts/{name}/rollback` —
+  повертає попередню версію, а без історії → `409`. Немає активної версії → чесний запасний промпт із
+  версією `none`.
+- Файли сайту: `GET /agent/site/files`, `GET /agent/site/files/{path}?version=N`.
+- Задачі: `POST /agent/tasks` з тілом `{"task": "...", "mode": "mock", "base": "current" | "seed"}`
+  (`mode` і `base` необов'язкові), `GET /agent/tasks`, `GET /agent/tasks/{task_id}`. Одна задача — два
+  виклики моделі: `plan` (`agent-planner` обирає намір і файли) і `propose` (`agent-editor` повертає diff).
+  Кожен виклик — рядок `agent_calls` з `prompt_version` і `prompt_sha256` тексту, який справді пішов у модель.
+- Гейти hw1: `parse_ok` (відповідь справді є diff) і `allowed_paths` (лише чотири файли `demo-site/`, без `..`,
+  абсолютних шляхів, перейменувань, створення й видалення файлів). У hw1 diff лише пропонується, сайт не змінюється.
+
+Статуси задачі (усі з HTTP 200): `proposed`; `no_change` — сайт уже такий; `no_patch` — модель не повернула
+diff (так виглядає зламаний або відкочений промпт `agent-editor`); `needs_clarification` — намір не розпізнано;
+`rejected_by_gate`; `provider_error` — виклик моделі впав, змін не запропоновано. Коди помилок: `422` — невалідне
+тіло, `403 {"error":"real_mode_disabled"}` — запит із `"mode":"real"`, `503` — недоступна БД агента.
+
+**Модель.** Детермінований `FakeProvider` у процесі (`sandbox/llm/fake_provider.py`): реальний ключ не потрібен,
+курсовий mock-provider не змінюється. Маркери в тексті задачі — як у mock: `__fail_503`, `__fail_429`, `__delay`,
+`__garbage`. Режим `real` до hw4 вимкнено.
+
+**Спробувати** (стандартний запуск — сервіс на `:8080`, з `demo-ports.yml` — на `:8180`; кирилицю
+надсилайте лише з файлу):
+
+```sh
+SVC=http://localhost:8080
+curl -s $SVC/agent/prompts
+curl -s -X POST $SVC/agent/tasks -H 'Content-Type: application/json' \
+  --data-binary @examples/agent/task_header_login_uk.json          # -> "status":"proposed"
+curl -s -X POST $SVC/agent/prompts/agent-editor/v1/activate -H 'Content-Type: application/json' -d '{}'
+curl -s -X POST $SVC/agent/tasks -H 'Content-Type: application/json' \
+  --data-binary @examples/agent/task_footer_year.json              # -> "status":"no_patch"
+curl -s -X POST $SVC/agent/prompts/agent-editor/rollback -H 'Content-Type: application/json' -d '{}'
+```
+
+**Як росте далі.** Схема агента росте по тижнях адитивними міграціями (`db/agent_migrations/`, з hw2; той самий
+текст дописується в кінець `db/schema.sql`): hw2 — маршрутизація за складністю і вартість викликів, hw3 — кеш
+кроків і dry-run, hw4 — fallback, застосування diff лише через approval, PII і preview сайту, hw5 — метрики
+й власні evals, hw6 — окремий CI-job.
+
 # Starter repository
 
 Те, що студент клонує на першому уроці й дороблює до capstone.
