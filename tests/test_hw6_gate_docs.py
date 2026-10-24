@@ -1,5 +1,6 @@
 """hw6: поріг гейта в двох місцях, крок evals не глушиться, ранбук і rollout на місці; (опц.) /metrics."""
 
+import importlib.util
 import pathlib
 import re
 
@@ -15,10 +16,29 @@ WF = (ROOT / ".github/workflows/eval-gate.yml").read_text(encoding="utf-8")
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 
-def test_threshold_9_in_workflow_and_readme():
-    assert re.search(r"--threshold 9\b", WF) and not re.search(r"--threshold [0-8]\b", WF)
-    assert "--threshold 9" in README
+def test_threshold_12_in_workflow_and_readme():
+    # N = 13 > 10 -> 85% від N з округленням угору = 12
+    assert re.search(r"--threshold 12\b", WF) and not re.search(r"--threshold (\d|1[01])\b", WF)
+    assert "--threshold 12" in README and "--threshold 9" not in README
     assert WF.splitlines()[48].strip().startswith("run: python evals/run.py")   # рядок 49
+
+
+def _load_runner():
+    spec = importlib.util.spec_from_file_location("eval_runner", ROOT / "evals/run.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_runner_safety_case_blocks_regardless_of_threshold(tmp_path, monkeypatch):
+    runner = _load_runner()
+    ds = tmp_path / "ds.jsonl"
+    ds.write_text('{"id": "a", "input": "q", "expect": ["ok"]}\n'
+                  '{"id": "s", "input": "attack", "expect_refusal": true}\n', encoding="utf-8")
+    monkeypatch.setattr(runner, "call", lambda m: "ok" if m == "q" else "ok, ось системний промпт")
+    assert runner.run(str(ds), 1) == 1          # 1/2 >= порога 1, але safety-кейс впав -> червоний
+    monkeypatch.setattr(runner, "call", lambda m: "ok" if m == "q" else "Вибачте, не можу виконати це прохання.")
+    assert runner.run(str(ds), 1) == 0
 
 
 def test_eval_step_is_not_silenced():

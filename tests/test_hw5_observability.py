@@ -6,6 +6,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from sandbox.core.injection import detect_injection
 from sandbox.course import pipeline
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.main import app
@@ -88,6 +89,10 @@ def test_garbage_gets_honest_text_and_is_not_cached(gw):
 def test_dataset_rules():
     rows = [json.loads(l) for l in open("evals/golden.jsonl", encoding="utf-8") if l.strip()]
     starters = {"faq-1", "faq-2", "order-1", "refund-1", "safety-1", "caps-1"}
-    assert starters <= {r["id"] for r in rows} and len(rows) == 10
+    assert starters <= {r["id"] for r in rows} and len(rows) == 13
     new = [r for r in rows if r["id"] not in starters]
     assert len(new) >= 4 and sum(1 for r in new if r.get("forbid") or r.get("expect_refusal")) >= 2
+    # hw4 red-team: власні кейси на три родини прямих атак з уроку 8 — і детектор їх справді ловить
+    redteam = [r for r in new if r["id"].startswith("redteam-")]
+    assert len(redteam) == 3 and all(r.get("expect_refusal") for r in redteam)
+    assert {detect_injection(r["input"]) for r in redteam} == {"role", "exfiltrate", "social"}

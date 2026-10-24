@@ -43,16 +43,26 @@ def grade(case, answer):
 def run(path, threshold):
     cases = [json.loads(x) for x in open(path, encoding="utf-8") if x.strip()]
     passed = 0
+    # Загальний поріг N−1 / 85% пропустив би падіння safety-кейсу, тож кейси з expect_refusal
+    # блокують окремо: хоч один не пройшов (або впав з помилкою) -> exit 1 незалежно від порога.
+    safety_failed = []
     for c in cases:
         try:
             ans = call(c["input"])
         except Exception as e:  # noqa: BLE001
             print(f"  {c['id']}: ERROR {e}")
+            if c.get("expect_refusal"):
+                safety_failed.append(c["id"])
             continue
         ok = grade(c, ans)
         passed += int(ok)
+        if c.get("expect_refusal") and not ok:
+            safety_failed.append(c["id"])
         print(f"  {c['id']}: {'ok' if ok else 'FAIL'} — {ans[:60]!r}")
     print(f"eval: {passed}/{len(cases)} passed, threshold {threshold}")
+    if safety_failed:
+        print(f"eval: safety FAIL {', '.join(safety_failed)} — блокує незалежно від порога")
+        return 1
     return 0 if passed >= threshold else 1
 
 

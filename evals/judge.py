@@ -3,7 +3,7 @@
 Потребує реального ключа в gateway (DeepSeek), тому в CI не запускається — лише вручну.
 Виклики судді теж коштують грошей: скрипт рахує їхні токени й вартість і друкує підсумок.
 
-    python evals/judge.py --dataset evals/golden.jsonl --threshold 8
+    python evals/judge.py --dataset evals/golden.jsonl --threshold 11
     # SERVICE_URL (за замовч. http://localhost:8080), GATEWAY_URL (http://localhost:4000), JUDGE_MODEL (deepseek-chat)
 
 Лише stdlib — як evals/run.py.
