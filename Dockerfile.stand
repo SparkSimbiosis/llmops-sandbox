@@ -1,0 +1,3 @@
+# Reuse the already installed course runtime; no dependency installation in preview builds.
+FROM llm-ops-service:latest
+COPY sandbox/ /app/sandbox/

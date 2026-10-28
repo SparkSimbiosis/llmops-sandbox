@@ -1,0 +1,15 @@
+# W6: догфудинг — копія llm-ops у вкладці «Проєкт», лише для читання й лише білий список каталогів.
+# Скопіюй у workspace.local.yml (не комітиться), підстав шлях до свого checkout і додай до команди стека:
+#   -f workspace.local.yml
+# Монтуємо підкаталоги поштучно: решта репозиторію (gateway/.env, db, *.local.yml) у контейнер не потрапляє взагалі,
+# а код (sandbox/agent/workspace.py) ще раз фільтрує білим списком і жорсткими виключеннями.
+services:
+  service:
+    environment:
+      - WORKSPACE_LLM_OPS_DIR=/workspaces/llm-ops
+    volumes:
+      - /path/to/llm-ops/README.md:/workspaces/llm-ops/README.md:ro
+      - /path/to/llm-ops/docs:/workspaces/llm-ops/docs:ro
+      - /path/to/llm-ops/evals:/workspaces/llm-ops/evals:ro
+      - /path/to/llm-ops/sandbox/agent/ui:/workspaces/llm-ops/sandbox/agent/ui:ro
+      - /path/to/llm-ops/sandbox/agent/studio:/workspaces/llm-ops/sandbox/agent/studio:ro
