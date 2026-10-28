@@ -35,7 +35,7 @@ def test_empty_registry_gives_none_and_fallback():
 def test_fallback_prompt_sets_no_answer_format():
     # без формату відповіді фейкова модель не дає ні плану, ні diff — поломку видно в статусі
     low = AGENT_FALLBACK_PROMPT.lower()
-    assert "json plan" not in low and "unified diff" not in low
+    assert "json plan" not in low and "unified diff" not in low and "chat json" not in low
 
 
 def test_list_shape_and_order(repo):
@@ -43,9 +43,10 @@ def test_list_shape_and_order(repo):
     assert r.status_code == 200
     rows = r.json()["prompts"]
     assert [(p["name"], p["version"], p["active"]) for p in rows] == \
-        [("agent-editor", "v1", False), ("agent-editor", "v2", True), ("agent-planner", "v1", True)]
+        [("agent-chat", "v1", True), ("agent-editor", "v1", False), ("agent-editor", "v2", True), ("agent-explorer", "v1", True),
+         ("agent-planner", "v1", True)]
     assert set(rows[0]) == {"name", "version", "active", "version_id", "sha256"}
-    assert rows[1]["sha256"] == sha256_hex(prompt_body("agent-editor", "v2"))
+    assert rows[2]["sha256"] == sha256_hex(prompt_body("agent-editor", "v2"))
 
 
 def test_activate_unknown_version_is_404_without_changes(repo):

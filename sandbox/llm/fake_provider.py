@@ -14,6 +14,7 @@ import sandbox.llm.fake_fixtures as fx
 from sandbox.llm.types import LLMResult, Usage
 
 _TASK = re.compile(r"<task>(.*?)</task>", re.S)
+_CHUNK = re.compile(r'<chunk id="[^"]*" path="([^"]*)" lines="[^"]*" sha256="[0-9a-f]*">\n(.*?)</chunk>', re.S)
 _FILE = re.compile(r'<site_file path="([^"]*)" version="(\d+)" sha256="([0-9a-f]*)">\n(.*?)</site_file>', re.S)
 
 
@@ -68,11 +69,17 @@ class FakeProvider:
         lowered = system.lower()
         if "__garbage" in task:
             answer = "..."
+        elif "chat json" in lowered:
+            files = [(path, content) for path, _version, _sha, content in _FILE.findall(user)]
+            answer = fx.chat_json(task, files, system)
+        elif "explore json" in lowered:
+            answer = fx.explore_json(task, _CHUNK.findall(user), system)
         elif "json plan" in lowered:
             answer = fx.plan_json(task)
         elif "unified diff" in lowered:
             files = [(path, content) for path, _version, _sha, content in _FILE.findall(user)]
-            answer = fx.edit_diff(task, files)
+            # файли сайту — правка demo-site; фрагменти пакета контексту — .patch для git-проєкту
+            answer = fx.edit_diff(task, files) if files else fx.repo_diff(task, _CHUNK.findall(user))
         else:
             answer = fx.NO_FORMAT_TEXT
 

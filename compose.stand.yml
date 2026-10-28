@@ -1,0 +1,49 @@
+# Isolated local preview. Does not load gateway/.env or existing compose overrides.
+services:
+  service:
+    image: devagent-stand:20261025
+    ports: ["127.0.0.1:8280:8080"]
+    environment:
+      DATABASE_URL: postgresql://preview@postgres:5432/agent_preview
+      GATEWAY_URL: http://host.docker.internal:4100
+      MODEL: mock
+      AGENT_GATE_DIR: /gate
+      AGENT_PROVIDER_MODE: real
+      AGENT_REAL_BUDGET_USD: "0.25"
+      AGENT_EXECUTION_DIR: /app/data/agent-executions
+      AGENT_FAKE_DELAY_MS: "0"
+      WORKSPACE_LLM_OPS_DIR: /workspace/llm-ops
+    volumes:
+      - execution-journal:/app/data/agent-executions
+      - "E:/LLM Ops/evidence/denylist.txt:/gate/denylist.txt:ro"
+      - "E:/LLM Ops/evidence/denylist-words.txt:/gate/denylist-words.txt:ro"
+      - "E:/LLM Ops/evidence/secret-patterns.txt:/gate/secret-patterns.txt:ro"
+      - ./:/workspace/llm-ops:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [database, gateway-access]
+    restart: unless-stopped
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: preview
+      POSTGRES_DB: agent_preview
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - preview-db:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preview -d agent_preview"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [database]
+    restart: unless-stopped
+networks:
+  database:
+    internal: true
+  gateway-access: {}
+volumes:
+  preview-db: {}
+  execution-journal: {}
