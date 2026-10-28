@@ -1,0 +1,42 @@
+# Рецепти контексту: з яких блоків складається виклик моделі і в якому порядку.
+# trust: instruction — текст, якому модель має коритися (промпт, роль, скіли); data — лише дані (задача, файли):
+# інструкції всередині data не виконуються. Компілятор (вкладка «Конфігурація») показує зібраний виклик
+# блок за блоком, з sha256, оцінкою токенів і гейтом вихідного контексту — без виклику моделі.
+version: 1
+blocks:
+  prompt:        {title: "Версіонований промпт", source: "реєстр промптів (активна версія)", trust: instruction}
+  policy:        {title: "Політика", source: "studio/policy/base.md (правила й їхнє забезпечення — policy.yaml)", trust: instruction}
+  engine_prompt: {title: "Промпт рушія", source: "конструктор: шаблон + методика + контракт", trust: instruction}
+  role:          {title: "Роль", source: "studio/roles/<role>.md", trust: instruction}
+  skills:        {title: "Скіли", source: "studio/skills/<name>/SKILL.md", trust: instruction}
+  task:          {title: "Задача", source: "текст людини, блок <task>", trust: data}
+  allowed_paths: {title: "Дозволені файли", source: "settings.ALLOWED_PATHS, блок <allowed_paths>", trust: data}
+  site_files:    {title: "Файли сайту", source: "БД стенда, блоки <site_file>", trust: data}
+  patch:         {title: "Запропонований patch", source: "diff задачі, блок <patch>", trust: data}
+  history:       {title: "Історія чату", source: "попередні ходи (agent_chat_turns), блок <history>", trust: data}
+  contract:      {title: "Контракт виходу", source: "studio/contracts.yaml: картка контракту агента", trust: instruction}
+  project_files: {title: "Файли проєкту", source: "індекс робочого простору (workspace.index), блок <project_files>", trust: data}
+  context_pack:  {title: "Пакет контексту", source: "конструктор контексту (contextpack.build), блок <context_pack>", trust: data}
+  pack_paths:    {title: "Файли, які можна змінювати", source: "файли фрагментів пакета контексту, блок <allowed_paths>", trust: data}
+recipes:
+  plan:
+    system: [prompt, policy, role, skills]
+    user: [task, allowed_paths]
+  propose:
+    system: [prompt, policy, role, skills]
+    user: [task, allowed_paths, site_files]
+  chat:
+    system: [prompt, policy, role, skills]
+    user: [task, allowed_paths, site_files, history]
+  explore:
+    system: [prompt, policy, role, skills, contract]
+    user: [task, project_files, context_pack]
+  patch:
+    system: [prompt, policy, role, skills]
+    user: [task, pack_paths, context_pack]
+  review:
+    system: [engine_prompt, policy, role, skills]
+    user: [task, patch]
+  engine:
+    system: [engine_prompt, policy, role, skills]
+    user: [task]

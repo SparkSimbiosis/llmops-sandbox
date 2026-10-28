@@ -1,0 +1,53 @@
+# Картки контрактів: неповні, лише суть — що на вході, що на виході, як перевіряє стенд.
+version: 1
+contracts:
+  plan-json:
+    title: "Вихід planner: JSON-план"
+    purpose: "Службовий крок: намір, файли й складність — машиночитано, щоб конвеєр перевірив файли за списком."
+    output: "JSON object: intent, files (only from the allowed list), complexity simple|complex."
+    checks: [json_parse, files_in_allowed_paths]
+  chat-json:
+    title: "Вихід чату: відповідь і пропозиція"
+    purpose: "Відповідь людині окремо від пропозиції зміни: пропозицію бачить код і веде через конвеєр, а не модель."
+    output: "JSON object: reply (text for the person), proposal (null or one-sentence task for the executor)."
+    checks: [json_parse, reply_leak, proposal_via_pipeline]
+  answer-with-citations:
+    title: "Вихід explorer: відповідь із посиланнями"
+    purpose: "Кожне твердження перевіряється кодом: посилання мусить вказувати на рядки, які справді були в пакеті контексту."
+    output: "JSON object: answer (text for the person, in their language), citations (list of {path, lines: \"start-end\"}), missing (list of project files that would be needed but were not in the pack)."
+    checks: [json_parse, citations_in_pack, reply_leak]
+  research-report:
+    title: "Вихід research: звіт дослідження"
+    purpose: "Висновки окремо від фактів, невизначеності — явно."
+    output: "Markdown report: Goals, Sources, Approaches, Synthesis, Uncertainties."
+    checks: [sections_present]
+  adr:
+    title: "Вихід architecture: ADR"
+    purpose: "Рішення з інваріантами, потоками даних і розібраними ризиками."
+    output: "Markdown ADR: Context, Invariants, Decision, Data flow (Mermaid), Risks, Consequences."
+    checks: [sections_present]
+  docs-page:
+    title: "Вихід documentation: сторінка документації"
+    purpose: "Українською, з ієрархією заголовків і робочими прикладами."
+    output: "Markdown page in Ukrainian with h1/h2/h3 hierarchy and usage examples."
+    checks: [sections_present]
+  unified-diff:
+    title: "Вихід editor: unified diff"
+    purpose: "Модель повертає лише зміни, а не файл цілком — їх можна перевірити гейтами й застосувати."
+    output: "Return a unified diff against the given files only. If nothing must change, return exactly NO_CHANGE."
+    checks: [parse_ok, allowed_paths, forbidden_patterns (W4)]
+  review-report:
+    title: "Вихід critic: звіт рев'ю"
+    purpose: "Зауваження поділено на блокери й поради, щоб людина бачила, що зупиняє merge."
+    output: "Markdown report with two sections: Blockers and Suggestions. Each item names the file and line."
+    checks: [sections_present]
+  mode-line:
+    title: "Рядок режиму"
+    purpose: "Задача, що змінює файли, починається одним рядком: режим, чому, гілка, слід."
+    output: "MODE: FAST|STANDARD|CRITICAL · WHY · BRANCH · CHECKOUT · TRACE: L0-L3"
+    checks: [first_line_matches]
+  commit-message:
+    title: "Повідомлення коміту"
+    purpose: "Тема англійською, тіло з метою, перевіркою й обмеженнями, трейлер Trace-Id."
+    output: "EN subject; body: Мета / Чому так / Перевірка / Обмеження; Trace-Id trailer."
+    checks: [subject_len, trace_id_present]

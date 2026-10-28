@@ -16,3 +16,8 @@ def mem(monkeypatch):
     monkeypatch.setattr(pipeline, "registry", AgentPromptRegistry(repo))
     monkeypatch.setattr(pipeline, "llm", LLMRouter(FakeProvider(delay_ms=0)))
     return repo
+
+
+@pytest.fixture(autouse=True)
+def isolated_execution_journal(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_EXECUTION_DIR", str(tmp_path / "executions"))

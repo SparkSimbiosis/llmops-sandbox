@@ -1,0 +1,38 @@
+# Базовий сценарій стенда (FAST): від задачі до рішення людини. Кожен крок показує, де його видно в UI.
+version: 1
+scenario:
+  id: fast-basic
+  title: "Базовий сценарій: правка сайту в режимі FAST"
+  steps:
+    - id: task
+      title: "Задача"
+      what: "Людина описує зміну звичайними словами."
+      tab: task
+    - id: plan
+      title: "План (planner)"
+      what: "Намір, файли й складність; службовий виклик на класі fast."
+      tab: task
+    - id: route
+      title: "Роутинг"
+      what: "Клас моделі за правилами routing.yaml: ризик -> reasoning, складно/довго -> balanced, інакше fast."
+      tab: builder
+    - id: build
+      title: "Збірка промпту"
+      what: "Рушій + методика + контракт + поля чернетки -> системний промпт; оцінка якості чернетки."
+      tab: builder
+    - id: context
+      title: "Контекст"
+      what: "Агент = роль + скіли + промпт + дані; компілятор показує виклик блоками й гейт вихідного контексту."
+      tab: config
+    - id: propose
+      title: "Propose (editor)"
+      what: "Модель повертає unified diff за контрактом."
+      tab: task
+    - id: gates
+      title: "Гейти"
+      what: "parse_ok і allowed_paths; заборонені патерни — у W4."
+      tab: task
+    - id: decide
+      title: "Рішення людини"
+      what: "Прийняти чи відхилити diff; застосування — у W4."
+      tab: history
