@@ -99,3 +99,4 @@ def test_dataset_rules():
     # звичайні питання, схожі на атаку: guardrail не має на них відмовляти (гейт хибних відмов у run.py)
     benign = [r for r in new if r["id"].startswith("benign-")]
     assert len(benign) == 4 and all(r.get("expect") and r.get("forbid") == ["не можу"] for r in benign)
+    assert all(detect_injection(r["input"]) is None for r in benign)
