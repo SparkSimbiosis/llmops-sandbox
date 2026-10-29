@@ -23,9 +23,26 @@ client = TestClient(app)
     ("I want a refund, this is urgent", "mock-strong"),
     ("Хочу подати скаргу", "mock-strong"),
     ("This is a complaint", "mock-strong"),
+    # повернення: на сильну — лише прохання про дію, довідка про повернення — на дешеву
+    ("Поверніть, будь ласка, гроші за замовлення", "mock-strong"),
+    ("Хочу повернути навушники", "mock-strong"),
+    ("Прошу оформити повернення", "mock-strong"),
+    ("Please refund my order #12", "mock-strong"),
+    ("I want my money back", "mock-strong"),
+    ("I'd like a refund, please", "mock-strong"),
+    ("Які умови повернення товару?", "mock-mini"),
+    ("Як повернутися на головну сторінку?", "mock-mini"),
+    ("What is your refund policy?", "mock-mini"),
+    ("Скільки днів триває повернення коштів?", "mock-mini"),
 ])
 def test_route_both_languages(msg, model):
     assert route(msg, "mock") == model
+
+
+def test_golden_refund_cases_still_go_to_strong():
+    # refund-1 і refund-2 з evals — прохання про дію: тікет через HITL на сильній моделі
+    assert route("Хочу повернути гроші, це терміново", "mock") == "mock-strong"
+    assert route("I want a refund for order #12", "mock") == "mock-strong"
 
 
 def test_route_real_model_is_passthrough():

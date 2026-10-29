@@ -69,8 +69,13 @@ docker compose -f docker-compose.yml -f demo-ports.yml up --build -d
 
 ### Маршрутизація і вартість (hw2)
 
-- Роутер (`sandbox/llm/router.py`): звичайні питання -> `mock-mini`; повернення, скарги, «терміново» -> `mock-strong`.
-  Маркери українською й англійською: `поверн`, `терміново`, `скарг`, `refund`, `urgent`, `complaint`.
+- Роутер (`sandbox/llm/router.py`): звичайні питання -> `mock-mini`; прохання повернути гроші, скарги, «терміново» ->
+  `mock-strong`. Маркери українською й англійською: `терміново`, `скарг`, `urgent`, `complaint`; повернення — лише як
+  прохання про дію (`поверніть`, `хочу повернути`, `оформіть повернення`, `refund my order`, `want a refund`, `money back`).
+  Довідка на кшталт «Які умови повернення товару?» чи «Як повернутися на головну сторінку?» іде на `mock-mini`:
+  сильна модель їй не потрібна, а за токен вона дорожча приблизно в 16.7 раза. Межа стенда: mock-провайдер (даний
+  готовим) сам відповідає тікетом на будь-яке «поверн», тож на mock така довідка все одно отримує відповідь HITL;
+  роутер вирішує, яка модель відповідає і скільки це коштує.
   На реальному ключі (`MODEL=gpt-5-mini` тощо) маршрут вироджується в одну модель.
 - Ціни за 1k токенів (`sandbox/llm/pricing.py`):
 
@@ -136,8 +141,8 @@ docker compose -f docker-compose.yml -f demo-ports.yml up --build -d
 REAL_MODEL=deepseek-chat docker compose up --build -d
 ```
 
-- **Три маршрути** (`sandbox/llm/router.py`): FAQ (пароль, вхід, замовлення) -> `mock-mini`; повернення, скарги,
-  «терміново» -> `mock-strong` (там `create_ticket` і черга approvals); «все інше» -> `REAL_MODEL`
+- **Три маршрути** (`sandbox/llm/router.py`): FAQ (пароль, вхід, замовлення) -> `mock-mini`; прохання повернути
+  гроші, скарги, «терміново» -> `mock-strong` (там `create_ticket` і черга approvals); «все інше» -> `REAL_MODEL`
   (`deepseek-chat` або `deepseek-reasoner`), fallback між двома моделями DeepSeek. Без `REAL_MODEL` «все інше» -> `mock-mini`.
 - **Ціни DeepSeek** за 1M токенів: `deepseek-chat` $0.27 / $1.10, `deepseek-reasoner` $0.55 / $2.19 (вхід / вихід);
   у `sandbox/llm/pricing.py` — за 1k. На реальну модель — стеля `REAL_MAX_TOKENS` (400).
