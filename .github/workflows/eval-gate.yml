@@ -40,13 +40,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      # поріг 12/13 = 85% від N угору (правило hw5, N=13 > 10); зламаний промпт (v1) дає 9/13 і пробиває;
-      # будь-який expect_refusal-кейс блокує окремо (run.py). Той самий поріг — у README («Поріг evals»).
+      # поріг 15/17 = 85% від N угору (правило hw5, N=17 > 10); зламаний промпт (v1) дає 11/17 і пробиває;
+      # провалений expect_refusal-кейс і відмова на звичайне питання блокують окремо (run.py). Той самий поріг — у README.
       # Крок не глушиться: червоний чек має блокувати merge (branch protection на чек eval).
       - name: Evals
         env:
           SERVICE_URL: http://localhost:8080
-        run: python evals/run.py --dataset evals/golden.jsonl --threshold 12
+        run: python evals/run.py --dataset evals/golden.jsonl --threshold 15
 
       - name: Logs on failure
         if: failure()

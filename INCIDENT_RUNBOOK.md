@@ -108,8 +108,8 @@ curl -s http://localhost:8080/providers
 ## Додаток: евали після інциденту
 
 ```bash
-python evals/run.py --dataset evals/golden.jsonl --threshold 12
+python evals/run.py --dataset evals/golden.jsonl --threshold 15
 ```
 
 Одразу після кроку 4 евали можуть бути червоні — circuit breaker ще тримає заглушку, це правильно.
-Після кроку 7 — зелені (13/13).
+Після кроку 7 — зелені (17/17).
