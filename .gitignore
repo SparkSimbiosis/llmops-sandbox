@@ -12,6 +12,11 @@ instructions.local.yml
 # W6: локальне монтування llm-ops для догфудингу (локальний шлях)
 workspace.local.yml
 
+# окремий превʼю стенда на :8280 (локальні шляхи й локальний базовий образ) — лише на машині автора;
+# стенд для всіх піднімається звичайним docker compose up --build
+compose.stand.yml
+Dockerfile.stand
+
 # python
 __pycache__/
 *.pyc
