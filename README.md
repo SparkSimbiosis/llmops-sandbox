@@ -94,7 +94,8 @@ docker compose -f docker-compose.yml -f demo-ports.yml up --build -d
 
 - Кеш відповідей (`sandbox/cache/response_cache.py`): ключ — модель + промпт (ім'я, версія, sha256 тексту) +
   повідомлення. Повтор того самого питання не йде в модель: у `requests` рядок з `prompt_tokens = 0`,
-  `completion_tokens = 0`, `cost_usd = 0`. Активація іншої версії промпта скидає кеш, тож відповідь після rollback — свіжа.
+  `completion_tokens = 0`, `cost_usd = 0`. Активація промпта кеш не скидає: версія і sha тексту вже в ключі, тож відповіді
+  різних версій не змішуються, а після rollback кеш попередньої версії теплий — під час інциденту це заощаджує виклики моделі.
 - Лічильники `hits` і `misses` рахуються окремо (`sandbox/observability/stats.py`), у лозі сервісу — `cache=hit|miss`.
   Плитка cache-hit в консолі оживе в hw5.
 - Інструмент `lookup_order` (`sandbox/tools/runtime.py`) виконується, результат дописується у відповідь:

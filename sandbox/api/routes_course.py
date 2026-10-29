@@ -7,7 +7,6 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from sandbox.approvals.queue import QUEUE
-from sandbox.cache.response_cache import CACHE
 from sandbox.core.config import BUDGET_USD, MODEL, REAL_MODEL
 from sandbox.llm.breaker import BREAKER
 from sandbox.llm.router import FALLBACK_CHAINS, providers_for
@@ -85,7 +84,8 @@ async def activate_prompt(version: str, request: Request):
     if result is None:
         # неіснуюча версія: 404 і нічого не змінено — активна лишається активною
         return JSONResponse({"error": "prompt_version_not_found", "version": version}, status_code=404)
-    CACHE.invalidate()  # W3: новий промпт — старі відповіді з кешу вже не про нього
+    # W3: кеш не скидаємо — версія і sha промпта вже в ключі, відповіді версій не змішуються,
+    # а після rollback кеш попередньої версії теплий (під час інциденту це найцінніше)
     return result
 
 
