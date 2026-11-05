@@ -62,6 +62,10 @@ docker compose -f docker-compose.yml -f demo-ports.yml up --build -d
 - Недоступна БД — не порожній реєстр: `/chat`, `GET /prompts` і активація відповідають `503`, тихого дефолту немає.
 - `GET /prompts` — список версій з ознакою `active`; `POST /prompts/{version}/activate` — promote / rollback
   однією транзакцією з рядком аудиту в `prompt_activations`; неіснуюча версія → `404` без змін.
+- Одну активну версію гарантує сама база: частковий унікальний індекс `prompts_one_active ON prompts (name) WHERE active`.
+  Ручний `UPDATE prompts SET active = true` під час інциденту падає з `duplicate key`, а не лишає дві активні версії.
+  Тому активація — два `UPDATE` в одній транзакції: спершу зняти активну, потім поставити обрану. Індекс, як і вся
+  схема, створюється на чистому томі (`docker compose down -v && docker compose up -d`).
 - Seed версій живе лише в `db/schema.sql`. Буквальна команда перевірки hw1 шукає в `service/`, якого тут
   немає; еквівалент по фактичному коду:
   `grep -ri "INSERT INTO prompts" sandbox/ tests/ Dockerfile.service` → порожньо, а
