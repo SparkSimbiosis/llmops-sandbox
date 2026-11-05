@@ -3,6 +3,9 @@
 import importlib.util
 import pathlib
 import re
+import subprocess
+import sys
+import textwrap
 
 from fastapi.testclient import TestClient
 
@@ -30,6 +33,31 @@ def test_threshold_matches_dataset_in_workflow_readme_and_runbook():
         assert found and all(int(t) == need for t in found)
     evals_step = WF.split("- name: Evals")[1].split("- name:")[0]
     assert RUN_CMD.search(evals_step) and "run: python evals/run.py" in evals_step
+
+
+def _ci_threshold_step():
+    step = WF.split("- name: Threshold matches dataset")[1].split("- name:")[0]
+    return step, textwrap.dedent(step.split("<<'EOF'\n")[1].split("EOF")[0])
+
+
+def test_ci_threshold_step_is_green_on_this_repo():
+    # той самий скрипт, що в кроці CI (без стека), на поточному репозиторії: exit 0
+    step, script = _ci_threshold_step()
+    assert "if: always()" in step
+    out = subprocess.run([sys.executable, "-"], input=script, text=True, capture_output=True, cwd=ROOT)
+    assert out.returncode == 0 and "threshold must be 15, mismatches: none" in out.stdout, out.stdout + out.stderr
+
+
+def test_ci_threshold_step_fails_when_dataset_grows(tmp_path):
+    # дописали 3 кейси (N = 20 -> поріг 17), а команди лишилися з 15 -> крок червоний
+    _, script = _ci_threshold_step()
+    for rel in (".github/workflows/eval-gate.yml", "README.md", "INCIDENT_RUNBOOK.md", "evals/golden.jsonl"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text((ROOT / rel).read_text(encoding="utf-8"), encoding="utf-8")
+    with open(tmp_path / "evals/golden.jsonl", "a", encoding="utf-8") as f:
+        f.write('{"id": "x1"}\n{"id": "x2"}\n{"id": "x3"}\n')
+    out = subprocess.run([sys.executable, "-"], input=script, text=True, capture_output=True, cwd=tmp_path)
+    assert out.returncode == 1 and "threshold must be 17" in out.stdout
 
 
 def _load_runner():

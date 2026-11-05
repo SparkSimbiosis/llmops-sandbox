@@ -48,6 +48,22 @@ jobs:
           SERVICE_URL: http://localhost:8080
         run: python evals/run.py --dataset evals/golden.jsonl --threshold 15
 
+      # поріг у командах (тут, у README і в INCIDENT_RUNBOOK) = 85% від N угору: дописали кейси в golden — онови поріг.
+      # Без стека й залежностей; always() — щоб розбіжність було видно і тоді, коли самі evals червоні.
+      - name: Threshold matches dataset
+        if: always()
+        run: |
+          python - <<'EOF'
+          import pathlib, re, sys
+          n = sum(1 for l in pathlib.Path("evals/golden.jsonl").read_text(encoding="utf-8").splitlines() if l.strip())
+          need = -(-85 * n // 100) if n > 10 else n - 1
+          cmd = re.compile(r"evals/run\.py --dataset evals/golden\.jsonl --threshold (\d+)")
+          bad = [(f, t) for f in (".github/workflows/eval-gate.yml", "README.md", "INCIDENT_RUNBOOK.md")
+                 for t in cmd.findall(pathlib.Path(f).read_text(encoding="utf-8")) if int(t) != need]
+          print(f"golden N={n}, threshold must be {need}, mismatches: {bad or 'none'}")
+          sys.exit(1 if bad else 0)
+          EOF
+
       - name: Logs on failure
         if: failure()
         run: docker compose logs
