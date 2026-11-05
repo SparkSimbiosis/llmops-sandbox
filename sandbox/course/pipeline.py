@@ -117,6 +117,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
                 continue                       # (опц.) breaker відкритий: модель не смикаємо, йдемо далі
             res = await gateway.complete(messages, alias, timeout_s=GATEWAY_TIMEOUT_S,
                                          max_tokens=REAL_MAX_TOKENS if alias in REAL_MODELS else None)
+            STATS.last_result[alias] = (res.ok, BREAKER.clock())   # (W5) для /providers: що знаємо саме про цю модель
             if res.ok:
                 BREAKER.success(alias)
                 break
@@ -132,7 +133,7 @@ async def handle_chat(message: str) -> tuple[int, dict]:
         if res.ok:
             STATS.consecutive_failures = 0     # будь-яка справжня відповідь провайдера скидає серію збоїв
         else:
-            STATS.consecutive_failures += 1    # впав увесь ланцюг (для /providers, hw5)
+            STATS.consecutive_failures += 1    # впав увесь ланцюг (лічильник для /metrics)
         routed = model
         model = res.model_alias                # у лог — модель, яка фактично відповідала (або остання спробувана)
         raw = res.content if res.ok else None

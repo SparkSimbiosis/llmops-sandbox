@@ -1,10 +1,24 @@
 """Маршрутизація (W2): сервіс сам обирає модель під тип питання.
 
-Найбільший важіль вартості — дороге дістається лише складному: повернення, скарги, «терміново»
-йдуть на сильну модель, решта — на дешеву. Маркери — українською й англійською.
+Найбільший важіль вартості — дороге дістається лише складному: прохання повернути гроші, скарги,
+«терміново» йдуть на сильну модель, решта — на дешеву. Маркери — українською й англійською.
+
+Повернення — саме прохання про дію («поверніть гроші», «хочу повернути», «refund my order»), а не корінь
+«поверн»: «Які умови повернення товару?» чи «Як повернутися на головну?» — довідка, сильна модель їй
+не потрібна. Неоднозначне лишається на дешевій моделі.
 """
 
-STRONG_MARKERS = ("поверн", "терміново", "скарг", "refund", "urgent", "complaint")
+import re
+
+STRONG_MARKERS = ("терміново", "скарг", "urgent", "complaint")
+REFUND_ACTION = re.compile(
+    r"\bповерн(іть|и)\b"                                                    # поверніть / поверни гроші
+    r"|\b(хочу|хотів би|хотіла б|прошу|треба|потрібно|мушу)\s+(\w+\s+)?повернути\b"  # хочу повернути
+    r"|\b(оформ|зроб)\w*\s+повернення\b"                                    # оформіть повернення
+    r"|\brefund\s+(my|me|the|this)\b|\brefund\W+please\b|\bplease\W+refund\b"
+    r"|\b(want|need|like|get|request|issue|give me)\s+(a\s+)?refund\b"
+    r"|\bmoney back\b",
+    re.I)
 # (опц. hw2) третій маршрут: типові FAQ (пароль, вхід, замовлення) — дешевий mock-mini з готовими відповідями;
 # ескалації — mock-strong (там tool_call create_ticket і HITL); «все інше» — реальна модель, якщо вона ввімкнена.
 FAQ_MARKERS = ("пароль", "password", "вхід", "login", "замовлен", "order", "#")
@@ -16,7 +30,7 @@ def route(message: str, default_model: str, real_model: str = "") -> str:
     text = message.lower()
     if default_model not in TIERS:
         return default_model             # на реальному ключі в MODEL маршрут вироджується в одну модель
-    if any(m in text for m in STRONG_MARKERS):
+    if any(m in text for m in STRONG_MARKERS) or REFUND_ACTION.search(text):
         return TIERS[default_model]["strong"]
     if real_model and not any(m in text for m in FAQ_MARKERS):
         return real_model                # третій маршрут: загальні питання — справжня модель

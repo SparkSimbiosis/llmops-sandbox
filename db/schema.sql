@@ -28,6 +28,11 @@ CREATE TABLE IF NOT EXISTS prompts (
     version_id  UUID NOT NULL DEFAULT gen_random_uuid(),
     PRIMARY KEY (name, version)
 );
+-- одна активна версія на ім'я гарантується базою, як у реєстрі промптів агента нижче: ручний
+-- «UPDATE prompts SET active = true» під час інциденту падає з duplicate key, а не лишає дві активні
+-- (тоді fetch_active вибирав би між ними навмання — обидва seed-рядки мають однаковий created_at).
+-- Тому activate перемикає двома UPDATE: спершу знімає активну, потім ставить обрану.
+CREATE UNIQUE INDEX IF NOT EXISTS prompts_one_active ON prompts (name) WHERE active;
 
 -- seed реєстру (W1): рівно дві версії, активна — v2. Живе тут, у міграції, а не в коді сервісу.
 -- виконується лише на чистому томі: docker compose down -v && docker compose up -d

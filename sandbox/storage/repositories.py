@@ -113,14 +113,13 @@ class PromptsRepo:
                         "SELECT version, active FROM prompts WHERE name = $1 ORDER BY created_at DESC FOR UPDATE",
                         name)
                     previous = next((r["version"] for r in locked if r["active"]), None)
-                    # один UPDATE: обрана версія -> true, решта -> false. EXISTS не дає «тихо» зняти
-                    # активність з усіх, коли версії немає (v99): тоді не оновиться жоден рядок
-                    updated = await conn.fetch(
-                        "WITH target AS (SELECT 1 FROM prompts WHERE name = $1 AND version = $2) "
-                        "UPDATE prompts SET active = (version = $2) WHERE name = $1 "
-                        "AND EXISTS (SELECT 1 FROM target) RETURNING version, active", name, version)
-                    if not updated:
-                        return None  # вихід з блоку transaction() без змін; рядка аудиту немає
+                    if not any(r["version"] == version for r in locked):
+                        return None  # v99: вихід з блоку transaction() без змін; рядка аудиту немає
+                    # два UPDATE, як _switch агента: один «SET active = (version = $2)» з індексом
+                    # prompts_one_active падає з duplicate key — нова активна зустрічає ще не зняту стару
+                    await conn.execute("UPDATE prompts SET active = false WHERE name = $1 AND active", name)
+                    await conn.execute(
+                        "UPDATE prompts SET active = true WHERE name = $1 AND version = $2", name, version)
                     # audit trail — у тій самій транзакції, що й зміна active
                     await conn.execute(
                         "INSERT INTO prompt_activations (name, version, previous_version, actor, approval_quote) "

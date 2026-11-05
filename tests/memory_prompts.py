@@ -28,6 +28,11 @@ class MemoryPrompts:
         if self.down:
             raise DbUnavailable("down")
 
+    def _one_active(self, name):
+        # як індекс prompts_one_active у db/schema.sql: дві активні версії одного імені неможливі
+        if sum(1 for r in self.rows if r["name"] == name and r["active"]) > 1:
+            raise AssertionError("duplicate key value violates unique constraint prompts_one_active")
+
     async def fetch_active(self, name):
         self._check()
         active = [r for r in self.rows if r["name"] == name and r["active"]]
@@ -47,8 +52,11 @@ class MemoryPrompts:
             return None  # нічого не змінено, аудиту немає
         previous = next((r["version"] for r in sorted(mine, key=lambda x: x["created_at"], reverse=True)
                          if r["active"]), None)
+        # два кроки, як два UPDATE у PromptsRepo: зняти активну, поставити обрану
         for r in mine:
-            r["active"] = r["version"] == version
+            r["active"] = False
+        next(r for r in mine if r["version"] == version)["active"] = True
+        self._one_active(name)
         self.activations.append({"name": name, "version": version, "previous_version": previous,
                                  "actor": actor, "approval_quote": quote})
         return previous, await self.list_all()
