@@ -38,7 +38,9 @@ curl -s http://localhost:8080/observability
 curl -s http://localhost:8080/providers
 ```
 
-Запам'ятати `error_rate_pct` і `fallback_events`. У `/providers` усі статуси `"ok"`.
+Запам'ятати `error_rate_pct` і `fallback_events`. У `/providers` статус окремо для кожної моделі: `mock-mini`
+відповіла на прогрів — `"ok"`; `mock-strong` і `mock` за останні 30 с ніхто не викликав — `"unknown"` (про них
+свіжих даних немає, і стенд не вигадує «ok»). Якщо після кроку 2 минуло понад 30 с, `mock-mini` теж `"unknown"`.
 
 ## 4. Інцидент: провайдер повертає 503
 
@@ -60,7 +62,9 @@ curl -s http://localhost:8080/providers
 
 - `fallback_events` виріс (кожен запит пробував запасну модель ланцюга);
 - `error_rate_pct` > базової лінії (рядки зі `status = '503'`);
-- `/providers` — усі `"degraded"` (3 повні відмови ланцюга поспіль), картка «Надійність провайдерів» у консолі червона;
+- `/providers` — `mock-mini` і `mock` `"degraded"`: запити йшли ланцюгом `mock-mini -> mock`, обидві впали по 3 рази
+  й мають відкритий circuit breaker. `mock-strong` — не `"degraded"`: через неї жоден із цих запитів не йшов. У картці
+  «Надійність провайдерів» дві червоні точки;
 - `errors_by_reason.provider_5xx` зріс.
 
 ## 6. Пауза для circuit breaker
@@ -92,16 +96,18 @@ curl -s http://localhost:8080/providers
 
 - `error_rate_pct` спав відносно кроку 5 (нові успішні запити розбавили збої);
 - `fallback_events` не спадає ніколи — він лічильник; сплеск видно саме по ньому, а відновлення — по error rate;
-- `/providers`: основна модель знову `"ok"` (перша справжня відповідь скидає серію збоїв). Запасна модель ланцюга
-  (`mock`) може ще бути `"degraded"`: її circuit breaker відкритий на 30 с, а пробний запит до неї не дійшов — нові
-  питання обслужила основна модель. Це чесно: про запасну модель ми ще не знаємо, що вона ожила. Через 30 с:
+- `/providers`: `mock-mini` знову `"ok"` (пробний запит half-open пройшов і закрив її breaker). Запасна `mock` ще
+  `"degraded"`: її circuit breaker відкритий на 30 с, а пробний запит до неї не дійшов — нові питання обслужила
+  `mock-mini`. Через 30 с:
 
 ```bash
 sleep 30
+curl -s -X POST http://localhost:8080/chat -H 'Content-Type: application/json' -d "{\"message\":\"hello once more $(date +%s)\"}"
 curl -s http://localhost:8080/providers
 ```
 
-  усі `"ok"`, картка в консолі зелена.
+  `mock-mini` — `"ok"` (щойно відповіла), `mock` — `"unknown"`, а не `"ok"`: вікно breaker'а минуло, але після
+  інциденту її ніхто не перевіряв. Якби провайдер досі лежав, зелена картка збрехала б.
 
 Те саме видно в консолі `http://localhost:4200`: плитки Fallback, Error rate і картка провайдерів.
 

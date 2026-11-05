@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from sandbox.core.injection import detect_injection
 from sandbox.course import pipeline
+from sandbox.llm.breaker import BREAKER, OPEN_S
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.main import app
 from sandbox.observability.stats import STATS
@@ -65,15 +66,45 @@ def gw(monkeypatch):
     return state
 
 
-def test_providers_shape_and_degraded_after_three_failures(gw):
+def _statuses():
+    return {p["name"]: p["status"] for p in client.get("/providers").json()["providers"]}
+
+
+def test_providers_status_is_per_model(gw):
     body = client.get("/providers").json()
     assert [p["name"] for p in body["providers"]] == ["mock-strong", "mock-mini", "mock"]
-    assert all(p["status"] == "ok" for p in body["providers"])
+    assert all(p["status"] == "unknown" for p in body["providers"])        # ще жодної відповіді — не «ok»
+    client.post("/chat", json={"message": "Як скинути пароль?"})
+    assert _statuses() == {"mock-strong": "unknown", "mock-mini": "ok", "mock": "unknown"}
     gw["mode"] = "down"
     for i in range(3):
         client.post("/chat", json={"message": f"__fail_503 q{i}"})
-    assert all(p["status"] == "degraded" for p in client.get("/providers").json()["providers"])
+    # збої йшли ланцюгом mock-mini -> mock; через mock-strong жоден запит не йшов — вона не degraded
+    assert _statuses() == {"mock-strong": "unknown", "mock-mini": "degraded", "mock": "degraded"}
     assert STATS.errors["provider_5xx"] >= 3
+
+
+class Clock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_providers_unknown_when_data_is_stale(gw, monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(BREAKER, "clock", clock)
+    gw["mode"] = "down"
+    for i in range(3):
+        client.post("/chat", json={"message": f"__fail_503 q{i}"})
+    assert _statuses()["mock"] == "degraded"
+    clock.t += OPEN_S + 1
+    # вікно breaker'а минуло, але ніхто не перевірив, що mock ожила: unknown, а не зелене «ok»
+    assert _statuses() == {"mock-strong": "unknown", "mock-mini": "unknown", "mock": "unknown"}
+    gw["mode"] = "ok"
+    client.post("/chat", json={"message": "q-fresh"})
+    assert _statuses() == {"mock-strong": "unknown", "mock-mini": "ok", "mock": "unknown"}
 
 
 def test_garbage_gets_honest_text_and_is_not_cached(gw):

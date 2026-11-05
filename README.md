@@ -186,8 +186,10 @@ SEMANTIC_CACHE=1 REAL_MODEL=deepseek-chat docker compose --profile advanced up -
   за сьогодні (ті самі запити, якими звіряються плитки); `cache_hit_pct` і `fallback_events` — лічильники в пам'яті процесу,
   після рестарту сервісу починаються з нуля. Додатково (опц.) `errors_by_reason`: `provider_429`, `provider_5xx`, `network`,
   `bad_json`, `circuit_open`, `tool_failed`, `guardrail_refusal`, `garbage` — щоб при інциденті бачити, що саме ламається.
-- `GET /providers` -> `{providers: [{name, status}]}`: після 3 повних відмов ланцюга поспіль або з відкритим circuit breaker —
-  `degraded`.
+- `GET /providers` -> `{providers: [{name, status}]}` — статус окремо для кожної моделі, за її останнім результатом:
+  відповіла — `ok`; збій або відкритий circuit breaker — `degraded`; модель не викликали довше за вікно breaker'а (30 с)
+  або ще жодного разу — `unknown`. Збої ланцюга `mock-mini -> mock` не фарбують `mock-strong`, а після вікна breaker'а
+  модель не стає зеленою без перевірки. У консолі `unknown` — сіра точка.
 - Відповідь моделі «...» (HTTP 200, але по суті сміття) -> «Не зміг сформулювати змістовну відповідь, спробуйте
   переформулювати питання.» — окремо від заглушки hw4 і не кешується.
 

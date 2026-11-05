@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from sandbox.approvals.queue import QUEUE
 from sandbox.core.config import BUDGET_USD, MODEL, REAL_MODEL
-from sandbox.llm.breaker import BREAKER
+from sandbox.llm.breaker import BREAKER, OPEN_S
 from sandbox.llm.router import FALLBACK_CHAINS, providers_for
 from sandbox.observability.stats import STATS
 from sandbox.course import pipeline
@@ -116,17 +116,27 @@ async def metrics():
 
 @router.get("/providers")
 async def providers():
-    # W5: статус реагує на збої — після 3 повних відмов ланцюга поспіль усі моделі degraded;
-    # модель з відкритим circuit breaker теж degraded. Порядок — як у ланцюгах роутера.
+    # W5: статус окремо для кожної моделі. Збій однієї моделі не фарбує інші, а старий результат
+    # не видається за «ok»: якщо модель не смикали довше за вікно breaker'а — unknown.
+    # Порядок — як у ланцюгах роутера.
     names = providers_for(MODEL) + (FALLBACK_CHAINS[REAL_MODEL] if REAL_MODEL else [])
+    now = BREAKER.clock()
     seen, items = set(), []
     for name in names:
         if name in seen:
             continue
         seen.add(name)
-        bad = STATS.consecutive_failures >= 3 or BREAKER.is_open(name)
-        items.append({"name": name, "status": "degraded" if bad else "ok"})
+        items.append({"name": name, "status": _provider_status(name, now)})
     return {"providers": items}
+
+
+def _provider_status(name: str, now: float) -> str:
+    if BREAKER.is_open(name):
+        return "degraded"                  # breaker відкритий: запити до моделі зараз не йдуть
+    last = STATS.last_result.get(name)
+    if last is None or now - last[1] > OPEN_S:
+        return "unknown"                   # свіжих даних немає — чесніше сказати «не знаємо», ніж «ok»
+    return "ok" if last[0] else "degraded"
 
 
 @router.get("/approvals")
