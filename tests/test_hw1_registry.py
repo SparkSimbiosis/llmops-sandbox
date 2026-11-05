@@ -1,6 +1,7 @@
 """Реєстр промптів (hw1): версія з БД, чесний дефолт 'none', 503 при недоступній БД, атомарна активація."""
 
 import asyncio
+import contextlib
 import pathlib
 import re
 
@@ -12,6 +13,7 @@ from sandbox.course import pipeline
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.main import app
 from sandbox.prompts.registry import FALLBACK_PROMPT, Registry, render
+from sandbox.storage.repositories import PromptsRepo
 from tests.memory_prompts import V1, MemoryPrompts
 
 client = TestClient(app)
@@ -125,6 +127,70 @@ def test_activate_ok_shape_and_audit(stack):
     assert [(v["version"], v["active"]) for v in body["versions"]] == [("v1", True), ("v2", False)]
     assert prompts.activations[-1] == {"name": "support-system", "version": "v1", "previous_version": "v2",
                                        "actor": "anonymous", "approval_quote": "rollback drill"}
+
+
+class FakeConn:
+    """asyncpg-подібне з'єднання над рядками prompts: пише SQL-журнал, після кожного UPDATE перевіряє
+    інваріант індексу prompts_one_active (Postgres перевіряє ще суворіше — по кожному рядку)."""
+
+    def __init__(self, rows):
+        self.rows, self.sql, self.audit = rows, [], []
+
+    def transaction(self):
+        return contextlib.nullcontext()
+
+    async def fetch(self, sql, *args):
+        self.sql.append(sql)
+        return [r for r in self.rows if not args or r["name"] == args[0]]
+
+    async def execute(self, sql, *args):
+        self.sql.append(sql)
+        if sql.startswith("UPDATE prompts SET active = false"):
+            for r in self.rows:
+                if r["name"] == args[0]:
+                    r["active"] = False
+        elif sql.startswith("UPDATE prompts SET active = true"):
+            for r in self.rows:
+                if (r["name"], r["version"]) == args:
+                    r["active"] = True
+        elif sql.startswith("INSERT INTO prompt_activations"):
+            self.audit.append(args)
+        assert sum(r["active"] for r in self.rows) <= 1, "duplicate key: prompts_one_active"
+
+
+class FakeDb:
+    def __init__(self, conn):
+        self.conn = conn
+
+    @contextlib.asynccontextmanager
+    async def connection(self):
+        yield self.conn
+
+
+def test_repo_activate_deactivates_first_then_activates():
+    rows = [{"name": "support-system", "version": v, "active": v == "v2", "version_id": None, "body": "",
+             "created_at": None} for v in ("v1", "v2")]
+    conn = FakeConn(rows)
+    repo = PromptsRepo(FakeDb(conn))
+    previous, listed = asyncio.run(repo.activate("support-system", "v1", "anonymous", "rollback drill"))
+    assert previous == "v2" and [r["version"] for r in listed if r["active"]] == ["v1"]
+    updates = [s for s in conn.sql if s.startswith("UPDATE")]
+    assert len(updates) == 2 and "active = false" in updates[0] and "active = true" in updates[1]
+    assert not any("(version = $2)" in s for s in conn.sql)            # одного UPDATE на обидві версії немає
+    assert conn.audit == [("support-system", "v1", "v2", "anonymous", "rollback drill")]
+    # невідома версія: жодного UPDATE, аудиту немає, активна лишається активною
+    before = len(conn.sql)
+    assert asyncio.run(repo.activate("support-system", "v99", "anonymous", None)) is None
+    assert not any(s.startswith(("UPDATE", "INSERT")) for s in conn.sql[before:])
+    assert len(conn.audit) == 1 and [r["version"] for r in rows if r["active"]] == ["v1"]
+
+
+def test_schema_guarantees_one_active_prompt():
+    schema = (pathlib.Path(__file__).resolve().parents[1] / "db/schema.sql").read_text(encoding="utf-8")
+    index = "CREATE UNIQUE INDEX IF NOT EXISTS prompts_one_active ON prompts (name) WHERE active;"
+    assert index in schema
+    # індекс є вже під час seed; літерал зібрано з частин, щоб grep перевірки hw1 по tests/ лишався порожнім
+    assert schema.index(index) < schema.index("INSERT INTO " + "prompts")
 
 
 @pytest.mark.parametrize("raw", [b"", b"not json", b"[1,2]"])

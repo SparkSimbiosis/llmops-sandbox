@@ -80,6 +80,23 @@ def test_mask_pii():
     assert mask_pii("без адреси") == "без адреси"
 
 
+@pytest.mark.parametrize("text,masked", [
+    ("мій email ivan@пошта.укр, скиньте пароль", "мій email [email], скиньте пароль"),
+    ("пишіть на олена.коваль@приклад.укр.", "пишіть на [email]."),
+    ("contact ivan@mail.ua or іван@домен.рф", "contact [email] or [email]"),
+    ("ціна 5@10 грн", "ціна 5@10 грн"),
+])
+def test_mask_pii_unicode_domains(text, masked):
+    assert mask_pii(text) == masked
+
+
+def test_cyrillic_email_does_not_reach_model_and_shares_cache_key(stack):
+    seen, _ = stack
+    client.post("/chat", json={"message": "мій email a@b.com, скиньте пароль"})
+    client.post("/chat", json={"message": "мій email ivan@пошта.укр, скиньте пароль"})
+    assert seen == ["мій email [email], скиньте пароль"]   # другий запит — з кешу, адреса в модель не пішла
+
+
 def test_masking_happens_before_cache_and_model(stack):
     seen, rows = stack
     client.post("/chat", json={"message": "мій email a@b.com, скиньте пароль"})

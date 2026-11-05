@@ -70,6 +70,17 @@ def test_prompt_change_is_a_miss(stack):
     assert rows.rows[-1]["prompt_version"] == "v1" and rows.rows[-1]["pt"] > 0
 
 
+def test_rollback_keeps_warm_cache(stack):
+    # відкат під час інциденту: відповіді v2 лишаються в кеші, бо версія вже в ключі — модель не викликається
+    calls, rows, _ = stack
+    client.post("/chat", json={"message": "Що ти можеш?"})
+    client.post("/prompts/v1/activate", json={})
+    client.post("/prompts/v2/activate", json={})
+    client.post("/chat", json={"message": "Що ти можеш?"})
+    assert len(calls) == 1
+    assert rows.rows[-1]["prompt_version"] == "v2" and rows.rows[-1]["pt"] == 0
+
+
 def test_model_is_part_of_the_key(stack):
     calls, _, _ = stack
     client.post("/chat", json={"message": "hello"})

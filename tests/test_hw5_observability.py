@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from sandbox.core.injection import detect_injection
 from sandbox.course import pipeline
+from sandbox.llm.breaker import BREAKER, OPEN_S
 from sandbox.llm.gateway_provider import GatewayProvider
 from sandbox.main import app
 from sandbox.observability.stats import STATS
@@ -65,15 +66,45 @@ def gw(monkeypatch):
     return state
 
 
-def test_providers_shape_and_degraded_after_three_failures(gw):
+def _statuses():
+    return {p["name"]: p["status"] for p in client.get("/providers").json()["providers"]}
+
+
+def test_providers_status_is_per_model(gw):
     body = client.get("/providers").json()
     assert [p["name"] for p in body["providers"]] == ["mock-strong", "mock-mini", "mock"]
-    assert all(p["status"] == "ok" for p in body["providers"])
+    assert all(p["status"] == "unknown" for p in body["providers"])        # ще жодної відповіді — не «ok»
+    client.post("/chat", json={"message": "Як скинути пароль?"})
+    assert _statuses() == {"mock-strong": "unknown", "mock-mini": "ok", "mock": "unknown"}
     gw["mode"] = "down"
     for i in range(3):
         client.post("/chat", json={"message": f"__fail_503 q{i}"})
-    assert all(p["status"] == "degraded" for p in client.get("/providers").json()["providers"])
+    # збої йшли ланцюгом mock-mini -> mock; через mock-strong жоден запит не йшов — вона не degraded
+    assert _statuses() == {"mock-strong": "unknown", "mock-mini": "degraded", "mock": "degraded"}
     assert STATS.errors["provider_5xx"] >= 3
+
+
+class Clock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_providers_unknown_when_data_is_stale(gw, monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(BREAKER, "clock", clock)
+    gw["mode"] = "down"
+    for i in range(3):
+        client.post("/chat", json={"message": f"__fail_503 q{i}"})
+    assert _statuses()["mock"] == "degraded"
+    clock.t += OPEN_S + 1
+    # вікно breaker'а минуло, але ніхто не перевірив, що mock ожила: unknown, а не зелене «ok»
+    assert _statuses() == {"mock-strong": "unknown", "mock-mini": "unknown", "mock": "unknown"}
+    gw["mode"] = "ok"
+    client.post("/chat", json={"message": "q-fresh"})
+    assert _statuses() == {"mock-strong": "unknown", "mock-mini": "ok", "mock": "unknown"}
 
 
 def test_garbage_gets_honest_text_and_is_not_cached(gw):
@@ -89,10 +120,14 @@ def test_garbage_gets_honest_text_and_is_not_cached(gw):
 def test_dataset_rules():
     rows = [json.loads(l) for l in open("evals/golden.jsonl", encoding="utf-8") if l.strip()]
     starters = {"faq-1", "faq-2", "order-1", "refund-1", "safety-1", "caps-1"}
-    assert starters <= {r["id"] for r in rows} and len(rows) == 13
+    assert starters <= {r["id"] for r in rows} and len(rows) == 17
     new = [r for r in rows if r["id"] not in starters]
     assert len(new) >= 4 and sum(1 for r in new if r.get("forbid") or r.get("expect_refusal")) >= 2
     # hw4 red-team: власні кейси на три родини прямих атак з уроку 8 — і детектор їх справді ловить
     redteam = [r for r in new if r["id"].startswith("redteam-")]
     assert len(redteam) == 3 and all(r.get("expect_refusal") for r in redteam)
     assert {detect_injection(r["input"]) for r in redteam} == {"role", "exfiltrate", "social"}
+    # звичайні питання, схожі на атаку: guardrail не має на них відмовляти (гейт хибних відмов у run.py)
+    benign = [r for r in new if r["id"].startswith("benign-")]
+    assert len(benign) == 4 and all(r.get("expect") and r.get("forbid") == ["не можу"] for r in benign)
+    assert all(detect_injection(r["input"]) is None for r in benign)

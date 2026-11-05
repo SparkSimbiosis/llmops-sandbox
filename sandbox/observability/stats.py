@@ -13,7 +13,10 @@ class Stats:
     misses: int = 0    # кешу не було — пішли в модель
     semantic_hits: int = 0         # (опц.) з них — за схожістю, а не точним збігом
     fallback_events: int = 0       # перемикання на наступну модель ланцюга (W4)
-    consecutive_failures: int = 0  # скільки разів поспіль упав увесь ланцюг (W4 -> /providers у W5)
+    consecutive_failures: int = 0  # скільки разів поспіль упав увесь ланцюг (W4; у /metrics)
+    # (W5) останній результат кожної моделі: аліас -> (успіх?, час за годинником breaker'а). З нього /providers
+    # показує статус саме цієї моделі, а не спільний лічильник збоїв ланцюга
+    last_result: dict = field(default_factory=dict)
     # (опц. W5) помилки за причинами — щоб при інциденті одразу бачити, що саме ламається
     errors: Counter = field(default_factory=lambda: Counter({r: 0 for r in ERROR_REASONS}))
 
