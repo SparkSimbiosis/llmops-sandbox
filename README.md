@@ -367,9 +367,35 @@ docker compose up --build -d
 
 - `workspace.local.yml` (з `workspace.local.yml.example`) — догфудинг: проєкт `llm-ops`, тобто цей репозиторій,
   лише для читання і лише білий список каталогів. Без нього сценарії `LLM-Ops · …` на «Огляді» недоступні.
-- `real.local.yml` (з `real.local.yml.example`) — реальна модель DeepSeek через gateway: бюджет $1 на день і гейт
-  вихідного контексту (denylist приватних імен і патерни секретів). Ключ лежить лише в `env_file` gateway, сервіс
-  його не бачить. Без цього файлу перемикач Real у шапці недоступний, а запит із `"mode":"real"` отримує `403`.
+- `real.local.yml` (з `real.local.yml.example`) — реальна модель DeepSeek зі своїм ключем, див. наступний розділ.
+  Без цього файлу перемикач Real у шапці недоступний, а запит із `"mode":"real"` отримує `403`.
+
+### Real-режим зі своїм ключем DeepSeek
+
+Mock доводить механіку, а щоб подивитися ту саму роботу на реальній моделі, потрібен лише ключ DeepSeek
+(platform.deepseek.com -> API keys). Три команди з кореня репозиторію:
+
+```sh
+cp gateway/.env.example gateway/.env          # вписати DEEPSEEK_API_KEY=sk-...   (gateway/.env у .gitignore)
+cp real.local.yml.example real.local.yml      # без правок: шляхи вже вказують на файли репозиторію
+docker compose -f docker-compose.yml -f real.local.yml up --build -d
+# зайняті порти: docker compose -f docker-compose.yml -f demo-ports.yml -f real.local.yml up --build -d
+```
+
+- У шапці `/agent/ui` стає доступним перемикач **Real**. Він діє на наступний запит: запуск на «Паспорті і запуску»,
+  чат, контекст проєкту й пак ін'єкцій. Негативні приклади на кшталт «зовнішнього трекера» — лише в mock.
+- Ключ читає тільки gateway (`env_file: gateway/.env` у `docker-compose.yml`): сервіс і UI його не бачать, у БД
+  і лог він не потрапляє.
+- Витрати: бюджет-гард $1 на день (`AGENT_REAL_BUDGET_USD`; стеля в коді, більшого не виставити). Вартість кожного
+  виклику видно в задачі й у `GET /agent/cost`; ціни DeepSeek — у розділі «Реальна модель».
+- Перед кожним real-викликом гейт вихідного контексту перевіряє текст на секрети й приватні імена. Навчальний
+  denylist — `examples/agent/gate/denylist.txt`; без denylist гейт закритий і real не працює (fail-closed).
+- На real Code Engine може повернути некоректний diff — тоді його зупиняє гейт `parse_ok` (див. «Відомі обмеження»).
+  Це очікувана поведінка: модель пропонує, код перевіряє.
+- Ключ не підхопився — задача в Real має статус `provider_error`, а `docker compose logs gateway | grep -i auth`
+  показує `401 Authentication Fails`.
+- Курсовий бот бере той самий ключ: додайте `REAL_MODEL=deepseek-chat` перед `docker compose` (розділ «Реальна
+  модель»). Повернутися на mock — `docker compose up -d` без `-f real.local.yml`.
 
 ### Демо за 5 хвилин (mock, через UI)
 
