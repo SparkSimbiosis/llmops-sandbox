@@ -76,12 +76,17 @@ def test_agent_module_set_is_what_we_expect():
             "sandbox.llm.provider_router", "sandbox.api.routes_agent"} <= names
 
 
-# 1. жодного seed-INSERT у таблиці промптів у коді сервісу (курсових і агентських)
+# 1. жодного seed-INSERT у таблиці промптів у коді сервісу: курсові версії — лише з міграції;
+#    агентські — з міграції плюс один шлях редактора UI-0 (repo.create_prompt_version, нова vN+1 неактивною)
 def test_no_prompt_seed_insert_in_sandbox():
-    pat = re.compile(r"insert\s+into\s+(agent_)?" + "prompts", re.I)
-    hits = [str(p) for p in SANDBOX.rglob("*") if p.is_file() and "__pycache__" not in p.parts
-            and pat.search(p.read_text(encoding="utf-8", errors="replace"))]
-    assert hits == []
+    pat = re.compile(r"insert\s+into\s+(agent_)?" + r"prompts\b", re.I)
+    hits = [(p.relative_to(SANDBOX).as_posix(), m.group(0).lower().split()[-1])
+            for p in SANDBOX.rglob("*") if p.is_file() and "__pycache__" not in p.parts
+            for m in pat.finditer(p.read_text(encoding="utf-8", errors="replace"))]
+    assert hits == [("agent/repo.py", "agent_" + "prompts")]
+    repo = (SANDBOX / "agent" / "repo.py").read_text(encoding="utf-8")
+    fn = repo[repo.index("async def create_prompt_version"):repo.index("async def list_activations")]
+    assert pat.search(fn) and "false)" in fn                      # саме в редакторі й саме неактивною
 
 
 # 2. агентський код не читає й не пише курсові таблиці

@@ -1,0 +1,44 @@
+# Роутинг стенда: класи моделей замість імен (як у політиці маршрутизації), алгоритм вибору
+# зверху вниз, аліаси test-режиму — ті самі fake-* курсового роутера hw2. Real-аліаси вмикає R-1.
+version: 1
+classes:
+  fast:
+    title: "Fast/Lite"
+    use_for: "класифікація, план, тривіальні правки за шаблоном"
+    test: fake-mini
+    real: deepseek-chat
+  balanced:
+    title: "Balanced"
+    use_for: "код за планом, рефакторинг кількох місць, звіти"
+    test: fake-strong
+    real: deepseek-chat
+  reasoning:
+    title: "Reasoning"
+    use_for: "високий ризик: БД, безпека, інваріанти; глибокий аудит"
+    test: fake-strong
+    real: deepseek-reasoner
+# службові кроки конвеєра завжди на дешевому класі
+steps:
+  plan: fast
+  chat: fast                       # W5: відповідь у чаті — короткий текст за файлами сайту
+  explore: fast                    # W6: відповідь за пакетом контексту; контекст великий, відповідь коротка
+# правила за порядком: перше, що спрацювало, і є рішенням
+rules:
+  - when: high_risk
+    class: reasoning
+    reason: "є прапорці ризику — беремо клас міркувань (reasoning)"
+  - when: long_task
+    class: balanced
+    reason: "задача довша за long_task_chars — найімовірніше кілька місць"
+  - when: complex
+    class: balanced
+    reason: "planner оцінив задачу як complex"
+  - when: default
+    class: fast
+    reason: "проста задача — принцип достатності"
+long_task_chars: 300
+# recorded in hw2, executed in hw4: порядок fallback за класами
+fallback:
+  balanced: [balanced, fast]
+  reasoning: [reasoning, fast]
+  fast: [fast, balanced]

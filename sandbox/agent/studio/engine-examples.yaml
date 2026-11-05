@@ -1,0 +1,53 @@
+version: 1
+examples:
+  research_engine:
+    title: "Варіанти збереження нотаток"
+    task_goal: "Порівняти JSON-файл і SQLite для локального notes-app, спираючись на надані джерела."
+    background_context: "Навчальний сервіс нотаток працює локально. Немає вимог до кількох серверів."
+    input_data: "Потрібні пошук, відновлення видалених нотаток і просте резервне копіювання."
+    constraints: ["Не вигадувати джерела", "Відділити припущення від фактів"]
+    acceptance_criteria: ["Є порівняння двох підходів", "Явно названі невизначеності"]
+    complexity: complex
+  architecture_engine:
+    title: "Архітектура кешу сторінок"
+    task_goal: "Спроєктувати локальний кеш результатів читання з явним правилом інвалідації."
+    background_context: "Демо-сайт редагується лише після підтвердження людиною."
+    input_data: "Сторінка складається з index, header, footer і styles; кожен файл має версію."
+    constraints: ["Без нової БД", "Старі версії не можуть повертатися після зміни файлу"]
+    acceptance_criteria: ["ADR містить інваріанти", "Є схема потоку даних і ризики"]
+    complexity: complex
+  code_engine:
+    title: "Кнопка входу в шапці"
+    task_goal: "Додай кнопку логіну в шапку демо-сайту."
+    background_context: "Змінюється лише навчальний demo-site, справжній репозиторій не записується."
+    input_data: "Поточні файли надаються окремими блоками контексту; поверни лише unified diff."
+    constraints: ["Лише дозволені demo-site файли", "Без зовнішніх скриптів"]
+    acceptance_criteria: ["Кнопка видима в шапці", "Посилання веде на /login"]
+    complexity: simple
+  critic_engine:
+    title: "Перевірка небезпечного diff"
+    task_goal: "Перевірити запропоновану зміну шапки й відділити блокери від рекомендацій."
+    background_context: "Зовнішні скрипти заборонені політикою демо-сайту."
+    input_data: |
+      --- a/demo-site/header.html
+      +++ b/demo-site/header.html
+      @@ -1,1 +1,2 @@
+       <header>Demo</header>
+      +<script src="https://example.invalid/track.js"></script>
+    constraints: ["Зовнішні скрипти заборонені", "Не застосовувати зміни"]
+    acceptance_criteria: ["Знайдено блокер із шляхом і рядком", "Є окрема секція Suggestions"]
+    complexity: complex
+  documentation_engine:
+    title: "Інструкція перевірки demo-сайту"
+    task_goal: "Написати коротку українську інструкцію ручної перевірки шапки й підвалу."
+    background_context: "Читач користується локальним навчальним стендом."
+    input_data: "Перевірити назву в шапці, посилання входу та рік у підвалі. Реальні файли надаються в контексті."
+    constraints: ["Українською", "Без тверджень про неперевірені функції"]
+    acceptance_criteria: ["Є послідовність кроків", "Є приклад очікуваного результату"]
+    complexity: simple
+example_projects:
+  research_engine: notes-app
+  architecture_engine: demo-site
+  code_engine: demo-site
+  critic_engine: demo-site
+  documentation_engine: demo-site

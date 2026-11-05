@@ -1,0 +1,176 @@
+# Шар політики агента: правила, які діють поверх ролей, скілів і промптів.
+# Кожне правило має два боки. Інструкція (policy/base.md) іде моделі в системне повідомлення — це «м'який» шар:
+# модель може його не послухати (промпт-ін'єкція, помилка). Тому кожне активне правило ще й забезпечене
+# кодом — «жорсткий» шар: гейт, роутинг або рішення людини, які спрацюють, хоч би що відповіла модель.
+# code — функція, що забезпечує правило (validate() перевіряє, що вона існує); config — файл studio/, де воно
+# налаштоване. status: active — діє зараз; planned — описано, з'явиться в названому етапі.
+# layer: context — як складено виклик; gate — перевірка до/після моделі; routing — яка модель і чи real;
+# human — рішення людини.
+version: 1
+instruction: policy/base.md
+layers:
+  context: "Контекст: як складено виклик"
+  gate: "Гейти: перевірки до й після моделі"
+  routing: "Роутинг і гроші: яка модель, чи real, скільки"
+  human: "Людина: що без рішення людини не станеться"
+rules:
+  data_is_not_instruction:
+    title: "Дані — не інструкції"
+    layer: context
+    what: "Текст задачі й файли сайту йдуть у user-повідомлення тегами <task>, <site_file>; команди всередині них не виконуються."
+    on_violation: "модель може послухати ін'єкцію, але далі її зупинять гейти й людина"
+    code: sandbox.agent.context.propose_messages
+    config: context.yaml
+    status: active
+  format_in_prompt_only:
+    title: "Формат відповіді — лише у версіонованому промпті"
+    layer: context
+    what: "Роль, скіли й ця політика не містять маркерів формату: формат задає промпт із реєстру, тож його версію видно в кожному виклику."
+    on_violation: "конфігурація не проходить validate() — тести й UI показують помилку"
+    code: sandbox.agent.configs.validate
+    config: roles/
+    status: active
+  propose_only:
+    title: "Агент лише пропонує"
+    layer: human
+    what: "Відповідь editor — лише пропозиція diff: у конвеєрі немає кроку запису, apply_patch викликає тільки рішення людини."
+    on_violation: "пропозиція стає заявкою; файли сайту не змінюються"
+    code: sandbox.agent.approvals.submit
+    config: tools.yaml
+    status: active
+  valid_diff:
+    title: "Лише коректний diff"
+    layer: gate
+    what: "Відповідь editor мусить розбиратися як diff; інакше — жодної пропозиції."
+    on_violation: "статус rejected_by_gate (parse_ok)"
+    code: sandbox.agent.gates.gate_parse_ok
+    config: null
+    status: active
+  allowed_paths:
+    title: "Лише дозволені файли"
+    layer: gate
+    what: "Diff може торкатися тільки файлів зі списку demo-site; ../, абсолютні шляхи й чужі файли — відмова."
+    on_violation: "статус rejected_by_gate (allowed_paths)"
+    code: sandbox.agent.gates.gate_allowed_paths
+    config: tools.yaml
+    status: active
+  outgoing_context:
+    title: "Нічого приватного назовні"
+    layer: gate
+    what: "Перед кожним real-викликом повідомлення перевіряються на заборонені слова й патерни секретів; без налаштованого гейта real закритий."
+    on_violation: "статус blocked_by_context_gate, у gateway нічого не пішло"
+    code: sandbox.agent.outgoing.check
+    config: null
+    status: active
+  real_opt_in:
+    title: "Справжня модель — лише явно"
+    layer: routing
+    what: "real вмикається тільки в оточенні сервісу й тільки ручним вибором; за замовчуванням — фейкова модель."
+    on_violation: "HTTP 409: real не ввімкнено"
+    code: sandbox.agent.settings.resolve_mode
+    config: routing.yaml
+    status: active
+  real_budget:
+    title: "Денний бюджет real"
+    layer: routing
+    what: "Перед real-викликом: витрачене сьогодні + верхня оцінка виклику ≤ бюджету (не більше $1 на день)."
+    on_violation: "статус blocked_by_budget, виклику немає"
+    code: sandbox.agent.settings.real_budget
+    config: null
+    status: active
+  exact_cache:
+    title: "Кеш без застарілих відповідей"
+    layer: routing
+    what: "Ключ кешу — sha256 режиму, кроку, моделі, версії промпта й усіх повідомлень: змінився байт — новий виклик."
+    on_violation: "—"
+    code: sandbox.agent.cache.StepCache.key
+    config: null
+    status: active
+  human_approval:
+    title: "Застосування — лише після рішення людини"
+    layer: human
+    what: "Пропозиція стає заявкою; Approve атомарно пише нові версії файлів сайту (append-only), Reject — ні; повторне рішення — 404."
+    on_violation: "без Approve файли не змінюються"
+    code: sandbox.agent.approvals.approve
+    config: tools.yaml
+    status: active
+  base_version:
+    title: "Diff — до тих версій, що бачила модель"
+    layer: gate
+    what: "Пропозиція: dry-run diff на файлах контексту. Approve: версії бази звіряються з поточними — змінилися, нічого не пишеться."
+    on_violation: "rejected_by_gate (base_version) або HTTP 409 stale"
+    code: sandbox.agent.gates.gate_base_version
+    config: null
+    status: active
+  forbidden_patterns:
+    title: "Заборонені патерни в diff"
+    layer: gate
+    what: "У доданих рядках немає <script, iframe/object/embed, inline-обробників, javascript:, зовнішніх URL і @import."
+    on_violation: "статус rejected_by_gate (forbidden_patterns)"
+    code: sandbox.agent.gates.gate_forbidden_patterns
+    config: null
+    status: active
+  size_limits:
+    title: "Розмір diff"
+    layer: gate
+    what: "Не більше 3 файлів, 40 змінених рядків і 20 000 байт diff за задачу."
+    on_violation: "статус rejected_by_gate (size_limits)"
+    code: sandbox.agent.gates.gate_size_limits
+    config: null
+    status: active
+  chat_propose_only:
+    title: "Чат лише пропонує"
+    layer: human
+    what: "У чаті немає інструмента запису: зміна з чату — це задача конвеєра (plan -> propose -> гейти), яка стає заявкою; застосовує її людина."
+    on_violation: "навіть «застосуй сам» дає щонайбільше pending-заявку; файли сайту не змінюються"
+    code: sandbox.agent.chat.submit_proposal
+    config: tools.yaml
+    status: active
+  reply_leak:
+    title: "Відповідь не зливає інструкції"
+    layer: gate
+    what: "Відповідь чату не повторює дослівно рядків системного повідомлення (промпт, політика, роль) і не містить патернів секретів."
+    on_violation: "статус blocked_by_output_gate: відповідь замінено, пропозицію з неї не взято"
+    code: sandbox.agent.chat.gate_reply_leak
+    config: null
+    status: active
+  workspace_read_only:
+    title: "Робочий простір — лише читання"
+    layer: context
+    what: "Агент бачить лише файли з індексу проєкту: білий список шляхів, без секретів, .git і бінарників; шлях із запиту не стає шляхом на диску. Функції запису в робочий простір немає."
+    on_violation: "файл поза індексом не читається (404 / порожній фрагмент), секретоподібні файли не потрапляють навіть у перелік"
+    code: sandbox.agent.workspace.read_file
+    config: null
+    status: active
+  patch_export_only:
+    title: "Git-проєкт: лише .patch, застосовує людина"
+    layer: human
+    what: "Зміна для git-проєкту стає заявкою export_patch. Approve звіряє sha256 файлів робочої копії з базою й повторює dry-run; лише тоді видається .patch. Функції запису в репозиторій немає — git apply робить людина."
+    on_violation: "файли змінилися — заявка stale (409); до Approve .patch не видається (409)"
+    code: sandbox.agent.approvals.patch_file
+    config: projects.yaml
+    status: active
+  patch_secrets:
+    title: "Секрети й приватні імена не потрапляють у .patch"
+    layer: gate
+    what: "Додані рядки diff перевіряються тими самими шаблонами секретів і denylist, що й вихідний контекст real."
+    on_violation: "статус rejected_by_gate: заявки немає, текст збігу не показується"
+    code: sandbox.agent.gates.gate_secrets
+    config: null
+    status: active
+  citations_in_pack:
+    title: "Посилання — лише на те, що агент бачив"
+    layer: gate
+    what: "Відповідь explorer перевіряється кодом: кожне посилання — шлях і діапазон рядків, що були в пакеті контексту цього виклику."
+    on_violation: "статус unsupported: відповідь показано з позначкою, які посилання вигадані"
+    code: sandbox.agent.explore.gate_citations
+    config: contracts.yaml
+    status: active
+  injection_pack:
+    title: "Пак промпт-ін'єкцій"
+    layer: gate
+    what: "Прямі (у повідомленні) й непрямі (у файлі сайту) ін'єкції проганяються через чат; оцінка окремо для м'якого шару (модель не піддалася) і жорсткого (наслідків немає)."
+    on_violation: "кейс із hard ✗ — дірка в коді, а не в промпті"
+    code: sandbox.agent.injections.run_pack
+    config: injections.yaml
+    status: active

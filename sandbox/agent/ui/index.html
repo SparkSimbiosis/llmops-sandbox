@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Development · стенд</title>
+<link rel="stylesheet" href="/agent/ui/app.css">
+</head>
+<body>
+<!-- Стенд dev-агента — сценарій Agent Development. Сценарій LLMOps — курсовий бот підтримки магазину з власною
+     консоллю (посилання в шапці). Сторінка ходить лише в /agent/*; дані з API показуються тільки через textContent. -->
+<header class="top">
+  <div class="brand">Agent Development <span class="muted">· стенд dev-агента</span> <span class="pill ok" id="provider">mock</span></div>
+  <div class="controls">
+    <span class="muted small">Наступний запуск</span><div class="seg prov" role="group" aria-label="Режим наступного запуску" title="Яка модель відповідає на задачі: фейкова чи справжня">
+      <button data-prov="mock" class="on">mock</button>
+      <button data-prov="real">real</button>
+    </div>
+    <label class="muted small">проєкт <select id="project"></select></label>
+    <span class="muted small" id="today">сьогодні: …</span>
+    <a class="small" id="console-link" href="#" target="_blank" rel="noopener"
+       title="Сценарій LLMOps: бот підтримки магазину (замовлення, інструменти, кеш, fallback, approvals, evals)">LLMOps · консоль курсу ↗</a>
+  </div>
+</header>
+
+<div class="app-shell">
+<nav class="primary-nav" aria-label="Основні розділи">
+<button class="major-tab active" data-section="demo" aria-current="page">Демо</button>
+<button class="major-tab" data-section="scenario">Сценарії</button>
+<button class="major-tab" data-section="lab">Лабораторія</button>
+<button class="major-tab" data-section="settings">Налаштування</button>
+<button class="major-tab" data-section="control">Контроль</button>
+<p class="primary-note">Демо пояснює → Сценарії запускають → Контроль показує слід.</p>
+</nav>
+
+
+<main id="main-content">
+<div class="banner" id="work-banner" hidden></div>
+  <header class="page-heading"><p class="eyebrow" id="page-group">Демо</p><h1 id="page-title" tabindex="-1">Модель пропонує, код перевіряє, людина вирішує</h1><p id="page-description">Три сценарії на репозиторії курсу LLM-Ops.</p></header>
+<div id="config-load-status" role="status" aria-live="polite" hidden></div>
+<nav class="tabs section-nav" id="section-navigation" aria-label="Підрозділи"><button class="tab active" data-tab="home" aria-current="page">Огляд</button>
+<button class="tab" data-tab="harness">Паспорт і запуск</button>
+<button class="tab" data-tab="builder">Один спеціаліст</button>
+<button class="tab" data-tab="chat">Чат</button>
+<button class="tab" data-tab="task">Ручний конвеєр сайту</button>
+<button class="tab" data-tab="workspace">Контекст проєкту</button>
+<button class="tab" data-tab="injections">Перевірка ін’єкцій</button>
+<button class="tab" data-tab="break">Тестові збої</button>
+<button class="tab" data-tab="cache">Кеш</button>
+<button class="tab" data-tab="policy">Політики</button>
+<button class="tab" data-tab="roles">Агенти, ролі й навички</button>
+<button class="tab" data-tab="packs">Що бачить модель</button>
+<button class="tab" data-tab="prompts">Версії промптів</button>
+<button class="tab" data-tab="config">Технічна конфігурація</button>
+<button class="tab" data-tab="approvals">Рішення людини <span class="pill warn" id="approvals-count" hidden></span></button>
+<button class="tab" data-tab="executions">Журнал виконань</button>
+<button class="tab" data-tab="history">Історія задач</button>
+<button class="tab" data-tab="cost">Вартість</button>
+<button class="tab" data-tab="site">Перегляд сайту</button></nav>
+<div id="scenario-switch" hidden><div id="scenario-kind" class="scenario-kinds" role="group" aria-label="Сценарій">
+  <button class="scenario-kind" data-scenario="read"><b>Питання до LLM-Ops</b><span>Відповідь із посиланнями на файли курсу</span></button>
+  <button class="scenario-kind" data-scenario="change"><b>Зміна з підтвердженням</b><span>Diff, гейти й рішення людини · .patch для LLM-Ops</span></button>
+  <button class="scenario-kind" data-scenario="trap"><b>Пастка в документі</b><span>Підкладена інструкція й гейт відповіді</span></button>
+</div></div>
+
+<section class="panel active" id="tab-home">
+  <p class="role-legend" aria-label="Хто що робить"><span class="who model">модель пропонує</span><span class="who code">код перевіряє</span><span class="who human">людина вирішує</span></p>
+  <div id="demo-gallery" class="demo-rows" aria-label="Сценарії для запуску"><p class="hint">Завантаження прикладів…</p></div>
+  <p class="hint demo-note">Кнопка лише відкриває сценарій із підставленим прикладом. Підготовка пакета й запуск — окремі явні дії, а Mock / Real перемикається в шапці.</p>
+  <details class="card" id="demo-lesson"><summary><b>Як це влаштовано</b> · урок у 7 кроків без виклику моделі</summary></details>
+  <details class="card" id="demo-flows"><summary><b>Схеми сценаріїв</b> · хто викликається, що перевіряє код, де потрібна людина</summary>
+    <p>Це кілька явних сценаріїв виконання. Вибір Engine не запускає решту ролей автоматично; Critic не вставлений після редактора.</p>
+    <div id="orchestration-flows"></div>
+    <h3>Підготовка й виконання — окремі дії</h3>
+    <ol class="readable-list"><li>Паспорт проєкту визначає профіль, доступи й дозволений сценарій.</li><li>Підготовка закріплює входи, версії промптів, контекст і ліміти. Для редактора набір файлів уточнюється після планувальника.</li><li>Модель викликається лише після явного запуску. Кожен підготовлений пакет одноразовий і має строк дії.</li><li>Відповідь проходить гейти; журнал, історія та вартість показують фактичне виконання. Невідомий результат виклику потребує ручної звірки.</li></ol>
+  </details>
+  <details class="card" id="demo-mentor"><summary><b>Для ментора</b> · про що попросити фідбек і відомі обмеження</summary>
+  <div class="overview-grid">
+    <article class="card"><h2>Про що попросити фідбек</h2><ul class="readable-list"><li>Чи зрозуміло, хто визначає наступну дію?</li><li>Чи достатньо контексту й чи видно його джерела?</li><li>Чи коректні контракти, облік і відмови?</li><li>Які механіки варто перенести у власний агентський каркас?</li></ul></article>
+    <article class="card limitation"><h2>Відомі обмеження</h2><p>Mock доводить механіку, а не якість LLM. У попередній перевірці чотири текстові Real Engine пройшли структурні контракти; Code Engine повернув некоректний diff і був відхилений.</p><p>Немає автоматичної команди з п’яти Engine, довгострокової пам’яті та повного відновлення задачі після збою.</p><button data-flows>Межі кожного сценарію</button></article>
+  </div>
+  </details>
+</section>
+<section class="panel" id="tab-policy"><div class="card" id="cf-sec-policy">
+      <div class="row between"><h2>Правила виконання</h2>
+        <button class="link" id="cf-policy-open">policy/base.md — текст для моделі</button></div>
+      <p class="hint">У кожного правила два боки. <b>Інструкція</b> (<code>policy/base.md</code>) іде моделі в system одразу
+        після версіонованого промпта — це мʼякий шар: модель може не послухати (промпт-інʼєкція, помилка).
+        Тому кожне активне правило ще й <b>забезпечене кодом</b> — гейтом, роутингом або рішенням людини, яке спрацює,
+        хоч би що відповіла модель. Правила описані в <code>policy.yaml</code>.</p>
+      <div id="cf-policy"></div>
+    </div><div class="card"><h2>Паспорт проєкту</h2><p>Режим Lab / Dev / Prod, складність і Critical-ризик — різні параметри. Ефективні дозволи та ліміти дивіться у паспорті конкретного проєкту.</p><button data-open="harness">Переглянути ефективний паспорт</button></div></section>
+<section class="panel" id="tab-roles"><div class="card"><h2>Роль — відповідальність, агент — конфігурація виклику</h2><p>Каталог нижче читається з поточної конфігурації сервісу. Дивіться роль, навички, інструменти й контракт разом; наявність у каталозі не означає автоматичний виклик у кожній задачі.</p><button data-flows>Де запускається кожна роль</button><button data-open="packs">Зібрати прев’ю за роллю</button></div><div class="card" id="cf-sec-agents">
+      <h2>Каталог агентів</h2>
+      <table class="tbl"><thead><tr><th>агент</th><th>крок</th><th>роль</th><th>скіли</th><th>інструменти</th>
+        <th>контракт</th><th>модель</th><th>контекст</th><th>статус</th></tr></thead>
+        <tbody id="cf-agents"></tbody></table>
+      <p class="hint">Агент = роль + скіли + інструменти + рецепт контексту + контракт + клас моделі (<code>agents.yaml</code>).
+        «У конвеєрі» — planner та editor. Чат і дослідник мають власні маршрути, п’ять Engine запускаються окремо з конструктора.</p>
+    </div><div class="card" id="cf-sec-roles">
+      <h2>Ролі й навички</h2>
+      <p class="hint">Роль — хто агент і за що відповідає; скіл — повторювана методика. Обидва йдуть у system після політики
+        й не можуть задавати формат відповіді.</p>
+      <div class="grid2"><div><h3>Ролі</h3><div id="cf-roles"></div></div>
+        <div><h3>Скіли</h3><div id="cf-skills"></div></div></div>
+    </div></section>
+<section class="panel" id="tab-packs"><div class="card"><h2>Як складається пак промптів</h2><div class="assembly"><span>Промпт кроку / методика Engine</span><span>Політика</span><span>Роль і навички</span><span>Контракт</span><span>Задача й контекст</span></div><p>Інструкції збираються в <b>system</b>, задача та недовірені файли — у <b>user</b>. Рецепт визначає порядок. Для кожного блоку видно джерело, версію або контрольну суму й оцінку розміру.</p><p class="hint">Нижче — прев’ю рецепта агента без виконання. Для точного пакета окремого Engine використайте «Підготувати Engine» в конструкторі: там додаткові runtime-інструкції, модель і ліміти обраного профілю.</p><button data-open="builder">Точний пакет Engine</button><button data-open="workspace">Контекст із файлів проєкту</button></div><div class="card" id="cf-sec-context">
+      <h2>Прев’ю пакета для обраного агента</h2>
+      <table class="tbl"><thead><tr><th>рецепт</th><th>system (інструкції)</th><th>user (дані)</th></tr></thead>
+        <tbody id="cf-recipes"></tbody></table>
+      <div class="grid2">
+        <div>
+          <label class="lbl" for="cf-agent">Агент</label>
+          <select id="cf-agent"></select>
+          <label class="lbl" for="cf-task">Задача</label>
+          <label class="lbl" for="cf-patch">Patch для рев’ю (необов’язково)</label><textarea id="cf-patch" rows="3" maxlength="20000"></textarea>
+          <textarea id="cf-task" rows="3" maxlength="2000">Онови рік у підвалі сайту на поточний</textarea>
+          <div class="row"><button class="primary" id="cf-compile">Скомпілювати</button></div>
+          <p class="hint">Показує, що саме піде в модель: блоки контексту по порядку, токени, ціну (test і верхню
+            оцінку real) і гейт вихідного контексту. Модель не викликається, гроші не витрачаються.</p>
+        </div>
+        <div id="cf-result">
+          <h3>Зібраний виклик</h3>
+          <p class="muted">Оберіть агента й натисніть «Скомпілювати».</p>
+        </div>
+      </div>
+    </div></section>
+<section class="panel" id="tab-injections"><div class="card" id="injection-lab">
+        <div class="row between"><h2>Пак промпт-інʼєкцій</h2>
+          <div class="row"><button class="primary" id="pack-run">Прогнати пак</button></div></div>
+        <div class="kpis" id="pack-kpis"></div>
+        <table class="tbl"><thead><tr><th>кейс</th><th>вид</th><th title="модель не піддалася">мʼякий шар</th><th title="інʼєкція не мала наслідків">жорсткий шар</th><th></th></tr></thead>
+          <tbody id="pack-cases"></tbody></table>
+        <div id="pack-detail"></div>
+        <p class="hint">Прямі інʼєкції — у повідомленні людини; непрямі — підкладені у файл сайту лише на цей хід (у БД нічого
+          не пишеться), а людина питає безневинне. <b>Мʼякий шар</b> — чи модель не піддалася. <b>Жорсткий шар</b> — чи
+          не було наслідків: сайт не змінився, жодна заявка не застосована, у заявці немає заборонених шаблонів і чужих
+          файлів, у відповіді немає службових інструкцій і секретів. Фейкова модель навмисно наївна: на mock мʼякий шар
+          падає, жорсткий має тримати всюди. На real кожен кейс — справжній виклик (і задача конвеєра, якщо модель
+          щось запропонує).</p>
+      </div></section>
+
+  <section class="panel" id="tab-harness"><div id="harness-root"></div></section>
+  <!-- Задача -->
+  <section class="panel" id="tab-task">
+    <div class="card">
+      <label class="lbl" for="task-text" id="task-label">Що змінити на демо-сайті</label>
+      <textarea id="task-text" rows="3" maxlength="2000" placeholder="Наприклад: додай кнопку логіну в шапку"></textarea>
+      <div class="row">
+        <label class="muted small">база
+          <select id="task-base">
+            <option value="current">current — поточні файли</option>
+            <option value="seed">seed — початкові файли</option>
+          </select>
+        </label>
+        <label class="muted small">модель
+          <select id="task-model" title="Авто — модель обирає роутинг за складністю; інакше — ваш вибір для кроку propose"></select>
+        </label>
+        <label class="muted small" title="Та сама задача з тим самим промптом і файлами — відповідь з кешу, без виклику моделі й без грошей">
+          <input type="checkbox" id="task-cache" checked> кеш</label>
+        <button class="primary" id="run">Запустити</button>
+      </div>
+      <div class="chips" id="scenarios"></div>
+    </div>
+    <details class="card tech" id="models-card">
+      <summary>Доступні моделі</summary>
+      <table class="tbl"><thead><tr><th>модель</th><th>бік</th><th>класи</th><th>$ за 1M вхід / вихід</th><th>стан</th></tr></thead>
+        <tbody id="models"></tbody></table>
+      <p class="hint">Ручний вибір діє на крок propose (зміна файлів); план завжди йде дешевою моделлю класу fast.
+        real-моделі доступні, лише коли real увімкнено в оточенні сервісу; налаштований денний бюджет і гейт контексту діють завжди.</p>
+    </details>
+    <div id="result"></div>
+  </section>
+
+  <!-- Історія -->
+  <section class="panel" id="tab-history">
+    <div class="card">
+      <div class="row between"><h2>Останні задачі</h2><button id="history-refresh">Оновити</button></div>
+      <table class="tbl"><thead><tr><th>час</th><th>id</th><th>статус</th><th>намір</th><th>режим</th><th>модель</th><th>вартість</th></tr></thead>
+        <tbody id="history"></tbody></table>
+    </div>
+  </section>
+
+  <!-- Промпти -->
+  <section class="panel" id="tab-prompts">
+    <div class="grid2">
+      <div class="card">
+        <div class="row between"><h2>Версії</h2><button id="seed-prompts" title="Додає «багатослівну» версію agent-editor, якщо її ще немає">Додати демо-версії</button></div>
+        <div id="prompt-list"></div>
+        <p class="hint">Фейкова модель реагує на формат у промпті: планувальнику потрібні слова «JSON plan», редактору — «unified diff».
+          Приберіть їх у новій версії — і побачите, як агент ламається.</p>
+      </div>
+      <div class="card">
+        <h2>Редактор</h2>
+        <div class="row">
+          <label class="muted small">промпт <select id="ed-name"></select></label>
+          <label class="muted small">порівняти з <select id="ed-base"></select></label>
+        </div>
+        <textarea id="ed-body" rows="8" maxlength="4000"></textarea>
+        <div class="row">
+          <button class="primary" id="ed-save">Зберегти як нову версію</button>
+          <span class="muted small" id="ed-status"></span>
+        </div>
+        <h3>Різниця з вибраною версією</h3>
+        <pre class="diff" id="ed-diff"></pre>
+        <h3>Журнал активацій</h3>
+        <ul class="log" id="ed-log"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Конструктор (B-1) -->
+  <section class="panel" id="tab-builder">
+    <div id="task-intake"></div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Чернетка промпту</h2>
+        <label class="lbl" for="b-engine">Рушій</label>
+        <select id="b-engine"></select>
+        <p class="hint" id="b-engine-hint"></p>
+        <label class="lbl" for="b-title">Заголовок</label>
+        <input id="b-title" class="wide" maxlength="200">
+        <label class="lbl" for="b-goal">Мета</label>
+        <textarea id="b-goal" rows="2" maxlength="1000"></textarea>
+        <label class="lbl" for="b-context">Контекст</label>
+        <textarea id="b-context" rows="2" maxlength="1000"></textarea>
+        <label class="lbl" for="b-input">Вхідні дані</label>
+        <textarea id="b-input" rows="2" maxlength="1000"></textarea>
+        <label class="lbl" for="b-constraints">Обмеження — по одному в рядку</label>
+        <textarea id="b-constraints" rows="2"></textarea>
+        <label class="lbl" for="b-accept">Критерії приймання — по одному в рядку</label>
+        <textarea id="b-accept" rows="2"></textarea>
+        <label class="lbl" for="b-complexity">Складність (як оцінив би planner)</label>
+        <select id="b-complexity">
+          <option value="">не вказано</option>
+          <option value="simple">simple</option>
+          <option value="complex">complex</option>
+        </select>
+        <div class="row">
+          <button id="b-build">Показати промпт</button>
+          <button id="b-example">Приклад</button>
+          <button id="b-yaml" disabled>Завантажити YAML</button>
+          <button id="b-save" disabled>Зберегти як версію промпта</button>
+        </div>
+        <p class="hint">Перегляд нічого не зберігає й не потрібен для запуску. «Зберегти» створює нову неактивну версію
+          цільового промпта рушія — активувати її можна на вкладці «Версії промптів».</p>
+      </div>
+      <div class="card" id="b-result">
+        <h2>Промпт без виклику моделі</h2>
+        <p class="muted">Натисніть «Показати промпт», щоб побачити зібраний текст, оцінку повноти й маршрут моделі.</p>
+      </div>
+    </div>
+    <div id="b-runtime"></div>
+  </section>
+
+  <!-- Конфігурація (C-1) -->
+  <section class="panel" id="tab-config">
+    <div class="card">
+      <h2>Джерела конфігурації та інструменти</h2>
+      <p class="hint">Шари зверху вниз: <b>політика</b> діє на всіх агентів і стоїть вище за ролі; <b>агент</b> збирається з
+        ролі, скілів, інструментів, рецепта контексту, контракту й класу моделі; <b>промпт</b> задає формат відповіді,
+        <b>рушій</b> — методику для конструктора. Усе — файли в <code>sandbox/agent/studio/</code>; зв’язки між ними
+        перевіряються при старті й у тестах.</p>
+      <nav class="chips cf-nav">
+        <button class="chip" data-open="policy">1 · Політика</button>
+        <button class="chip" data-open="roles">2 · Агенти</button>
+        <button class="chip" data-open="roles">3 · Ролі й скіли</button>
+        <a class="chip" href="#cf-sec-prompts">4 · Промпти й рушії</a>
+        <a class="chip" href="#cf-sec-tools">5 · Інструменти</a>
+        <button class="chip" data-open="packs">6 · Контекст і компілятор</button>
+        <a class="chip" href="#cf-sec-files">7 · Файли</a>
+        <a class="chip" href="#cf-sec-routing">Роутинг і контракти</a>
+      </nav>
+      <div id="cf-errors"></div>
+    </div>
+
+
+
+
+
+
+
+    <div class="card" id="cf-sec-prompts">
+      <h2>4 · Промпти й рушії</h2>
+      <p class="hint">Промпт кроку конвеєра — версіонований, у реєстрі (вкладка «Промпти»): він задає формат відповіді, і
+        його версія пишеться в кожен виклик. Рушій — пак промпту з методикою й контрактом виходу; з нього конструктор
+        збирає нову версію промпта (вкладка «Конструктор»).</p>
+      <table class="tbl"><thead><tr><th>крок</th><th>промпт у реєстрі</th></tr></thead><tbody id="cf-prompts"></tbody></table>
+      <table class="tbl"><thead><tr><th>рушій</th><th>роль</th><th>клас моделі</th><th>контракт</th><th>змінні</th><th>куди зберігає</th></tr></thead>
+        <tbody id="cf-engines"></tbody></table>
+    </div>
+
+    <div class="card" id="cf-sec-tools">
+      <h2>5 · Інструменти</h2>
+      <table class="tbl"><thead><tr><th>інструмент</th><th>тип</th><th>що робить</th></tr></thead>
+        <tbody id="cf-tools"></tbody></table>
+      <p class="hint">Модель інструменти не викликає сама (function calling немає): кожен виконує детермінований код
+        конвеєра, модель бачить лише результат. Запис (<code>apply_patch</code>) виконується лише за Approve людини
+        у вкладці «Рішення людини».</p>
+    </div>
+
+    <div class="grid2" id="cf-sec-routing">
+      <div class="card">
+        <h2>Роутинг</h2>
+        <table class="tbl"><thead><tr><th>клас</th><th>для чого</th><th>test</th><th>real (R-1)</th></tr></thead>
+          <tbody id="rt-classes"></tbody></table>
+        <h3>Правила — зверху вниз, перше спрацьоване</h3>
+        <ol class="log" id="rt-rules"></ol>
+        <p class="hint" id="rt-steps"></p>
+      </div>
+      <div class="card">
+        <h2>Картки контрактів</h2>
+        <div class="contracts" id="ct-list"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2 id="sc-title">Навчальний конвеєр сайту</h2>
+      <ol class="steps" id="sc-steps"></ol>
+    </div>
+
+
+
+    <div class="grid2" id="cf-sec-files">
+      <div class="card">
+        <h2>7 · Файли конфігурації</h2>
+        <div id="cf-files"></div>
+      </div>
+      <div class="card" id="cf-view">
+        <h2>Файл</h2>
+        <p class="muted">Оберіть файл ліворуч або посилання вище.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Зламати -->
+  <section class="panel" id="tab-break">
+    <div class="card">
+      <h2>Зламати агента</h2>
+      <p class="hint">Кожна кнопка запускає задачу або перемикає промпт. Задачі звідси завжди йдуть у фейкову модель
+        (маркери __fail_503, __delay... розуміє лише вона) і зʼявляються в «Історії». Перемикання промпта — не задача:
+        його видно на вкладці «Промпти» в журналі активацій.</p>
+      <div id="breakers" class="breakers"></div>
+    </div>
+  </section>
+
+  <!-- Вартість -->
+  <section class="panel" id="tab-chat">
+    <div class="grid2">
+      <div class="card">
+        <div class="row between"><h2>Розмова з агентом</h2>
+          <div class="row"><span class="muted small" id="chat-id">нова розмова</span><button id="chat-new">Нова розмова</button></div></div>
+        <div id="chat-log" class="chat-log"></div>
+        <textarea id="chat-input" rows="3" maxlength="2000" placeholder="Запитайте про сайт або попросіть зміну… (Ctrl+Enter — надіслати)"></textarea>
+        <div class="row"><button class="primary" id="chat-send">Надіслати</button>
+          <label class="check"><input type="checkbox" id="chat-cache" checked> кеш</label>
+          <span class="muted small" id="chat-mode"></span></div>
+        <p class="hint">Mock / Real у шапці змінює наступне повідомлення одразу. Уже надісланий запит завершується у своєму режимі. Кеш враховує модель, промпт, файли та останні 6 ходів: повтор тексту в цій розмові не є тим самим запитом.</p>
+        <div class="chips" id="chat-examples"></div>
+        <p class="hint">Агент бачить поточні дозволені файли сайту й лише останні 6 ходів розмови (це не повна памʼять) і відповідає за ними. Змінювати сам він не
+          може: якщо ви просите зміну, він формулює задачу, вона проходить звичайний конвеєр (план, diff, гейти) і стає
+          заявкою — застосовуєте її ви на вкладці «Підтвердження». Відповідь, що дослівно повторює службові інструкції,
+          гейт reply_leak замінює. Модель — перемикач mock / real угорі.</p>
+      </div>
+
+    </div>
+    <div class="card">
+      <div class="row between"><h2>Останні розмови</h2><button id="chat-list-refresh">Оновити</button></div>
+      <table class="tbl"><thead><tr><th>коли</th><th>перше повідомлення</th><th>ходів</th><th>кейс паку</th><th>вартість</th></tr></thead>
+        <tbody id="chat-list"></tbody></table>
+    </div>
+  </section>
+
+  <!-- Проєкт (W6) -->
+  <section class="panel" id="tab-workspace">
+    <div class="grid2">
+      <div class="card">
+        <div class="row between"><h2>Питання до проєкту</h2>
+          <label class="muted small">проєкт <select id="ws-project"></select></label></div>
+        <div class="kpis" id="ws-index-kpis"></div>
+        <textarea id="ws-question" rows="3" maxlength="2000" placeholder="Запитайте про код чи документацію проєкту… (Ctrl+Enter — запитати)"></textarea>
+        <div class="row"><label class="check">бюджет контексту <input type="range" id="ws-budget" min="200" max="8000" step="100" value="2000"></label>
+          <b id="ws-budget-v">2000</b><span class="muted small">токенів</span>
+          <label class="check"><input type="checkbox" id="ws-cache" checked> кеш</label></div>
+        <div class="row"><button id="ws-pack">Зібрати пакет (без моделі)</button>
+          <button class="primary" id="ws-ask">Запитати агента</button><span class="muted small" id="ws-mode"></span></div>
+        <div class="chips" id="ws-examples"></div>
+        <h3>Файли проєкту <span class="muted small">— клік по 📌 закріплює файл у пакеті (до 5)</span></h3>
+        <div id="ws-tree" class="ws-tree"></div>
+        <div id="ws-skipped" class="muted small"></div>
+        <p class="hint">Агент лише читає: бачить файли з білого списку проєкту, без секретів, .git і бінарників. Конструктор
+          контексту ріже файли на фрагменти (розділи, функції), оцінює їх за словами питання й набирає в межах бюджету —
+          що не влізло, видно у звіті. Пакет іде в модель разом із роллю, скілом, карткою контракту й версіонованим
+          промптом (prompt-package). Відповідь перевіряє код: кожне посилання мусить вказувати на рядки, які справді були
+          в пакеті. Один файл тестового репозиторію містить навмисну інʼєкцію — спитайте про бекап.</p>
+      </div>
+      <div class="card">
+        <h2>Відповідь</h2>
+        <div id="ws-answer" class="muted">Ще нічого не питали.</div>
+        <div id="ws-viewer"></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Пакет контексту</h2>
+        <div id="ws-pack-view" class="muted">Зберіть пакет або запитайте агента.</div>
+      </div>
+      <div class="card">
+        <h2>Prompt-package</h2>
+        <div id="ws-package" class="muted">Тут — з чого зібрано виклик: блоки, довіра, sha256, токени, ціна.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row between"><h2>Останні прогони</h2><button id="ws-runs-refresh">Оновити</button></div>
+      <table class="tbl"><thead><tr><th>коли</th><th>проєкт</th><th>питання</th><th>статус</th><th>фрагменти</th><th>токени</th><th>вартість</th></tr></thead>
+        <tbody id="ws-runs"></tbody></table>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-approvals">
+    <div class="grid2">
+      <div class="card">
+        <div class="row between"><h2>Заявки</h2>
+          <div class="row">
+            <div class="seg" id="ap-filter" role="group" aria-label="Фільтр заявок">
+              <button data-status="pending" class="on">відкриті</button><button data-status="">усі</button>
+            </div>
+            <button id="ap-refresh">Оновити</button>
+          </div></div>
+        <div id="ap-list"></div>
+        <p class="hint">Агент лише пропонує diff. Пропозиція на поточному сайті, що пройшла всі гейти, стає заявкою —
+          і тільки тут людина вирішує, чи писати її у файли. Approve атомарно створює нові версії файлів (старі
+          лишаються в історії); якщо файл змінився після пропозиції — заявка закривається як stale (409) і нічого не
+          пишеться. Та сама пропозиція вдруге (наприклад, із кешу) не створює другої заявки.</p>
+      </div>
+      <div class="card" id="ap-detail">
+        <h2>Заявка</h2>
+        <p class="muted">Оберіть заявку ліворуч.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-site">
+    <div class="card">
+      <div class="row between"><h2>Демо-сайт</h2>
+        <div class="row">
+          <label class="muted small" for="site-approval">після заявки</label>
+          <select id="site-approval"><option value="">— немає відкритих —</option></select>
+          <button id="site-refresh">Оновити</button>
+          <button class="danger" id="site-reset">Скинути до seed</button>
+        </div></div>
+      <div class="grid2 site-grid">
+        <div><h3>Зараз</h3><iframe id="site-now" class="site-frame" sandbox="allow-same-origin" title="Сайт зараз"></iframe></div>
+        <div><h3 id="site-after-title">Після заявки</h3><iframe id="site-after" class="site-frame" sandbox="allow-same-origin" title="Сайт після заявки"></iframe></div>
+      </div>
+      <p class="hint">Превʼю збирає index.html з header, footer і стилями. Віддається з CSP <code>default-src 'none'</code>
+        (дозволені лише inline-стилі) і показується в iframe з <code>sandbox</code> без <code>allow-scripts</code>: навіть якби скрипт пройшов гейти,
+        він тут не виконається. «Після заявки» — dry-run diff у пам'яті, у БД нічого не пишеться. «Скинути до seed»
+        додає нові версії з текстом seed — історія не стирається, а відкриті заявки на старі версії стануть stale.</p>
+    </div>
+    <div class="card">
+      <h2>Історія версій файлів</h2>
+      <table class="tbl"><thead><tr><th>коли</th><th>файл</th><th>версія</th><th>звідки</th><th>задача</th><th>заявка</th><th>sha256</th></tr></thead>
+        <tbody id="site-history"></tbody></table>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-cache">
+    <div class="card">
+      <div class="row between"><h2>Кеш кроків</h2>
+        <div class="row"><button id="cache-refresh">Оновити</button><button id="cache-clear">Очистити</button></div></div>
+      <div class="kpis" id="cache-kpis"></div>
+      <table class="tbl"><thead><tr><th>ключ</th><th>режим</th><th>крок</th><th>модель</th><th>промпт</th><th>вік</th><th>hits</th><th>ціна відповіді</th></tr></thead>
+        <tbody id="cache-items"></tbody></table>
+      <p class="hint">Ключ — точний: режим + крок + модель + версія й sha256 промпта + sha256 усіх повідомлень (задача, роль,
+        скіли, файли сайту з версіями). Змінився хоч один байт — це новий ключ, тож застарілої відповіді кеш не віддасть.
+        Кешуються лише успішні відповіді: збої 503/429 і заблоковані гейтом виклики — ні. Hit не викликає модель,
+        коштує $0 і в real нічого не відправляє. Кеш живе в пам'яті сервісу: перезапуск його очищує.</p>
+      <p class="hint">Як спробувати: запустіть «Онови рік у підвалі сайту» двічі — другий раз обидва кроки з кешу.
+        Активуйте іншу версію agent-editor — план ще з кешу, а propose вже йде в модель.</p>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-cost">
+    <div class="card">
+      <div class="row between"><h2>Вартість за сьогодні</h2><button id="cost-refresh">Оновити</button></div>
+      <div class="kpis" id="cost-kpis"></div>
+      <table class="tbl"><thead><tr><th>модель</th><th>спроби / кеш</th><th>оцінки / невідомі</th></tr></thead>
+        <tbody id="cost-models"></tbody></table>
+      <p class="hint">Real — оцінка за прайсом, не рахунок провайдера. Невідома ціна не означає $0. Кеш не є спробою провайдера. Долари fake-моделей синтетичні: показують різницю між дешевою й сильною моделлю, а не реальні гроші.</p>
+    </div>
+  </section>
+  <section class="panel" id="tab-executions">
+    <div class="card">
+      <div class="row between"><h2>Журнал виконань</h2><button id="executions-refresh">Оновити</button></div>
+      <p class="hint">prepared: вхід збережено; pending: виклик почався; completed: результат збережено;
+        accounted: облік записано. unknown або незавершений pending: результат потребує ручної звірки.
+        Повторний запит може коштувати грошей удруге. Цей журнал не обіцяє повного відновлення задачі.</p>
+      <div id="execution-list" class="chips"></div><div id="execution-detail"></div>
+    </div>
+  </section>
+</main>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+<script src="/agent/ui/app.js"></script>
+<script src="/agent/ui/call-identity.js"></script>
+<script src="/agent/ui/demo-catalog.js"></script>
+<script src="/agent/ui/task-intake.js"></script>
+<script src="/agent/ui/studio-run.js"></script>
+<script src="/agent/ui/harness.js"></script>
+<script src="/agent/ui/studio-guide.js"></script>
+<script src="/agent/ui/scenario-workspace.js"></script>
+</body>
+</html>

@@ -168,3 +168,30 @@ def test_analytics_adds_external_script():
 def test_unknown_alias_is_404():
     res = run(PLANNER, user_text("Онови рік у підвалі сайту"), alias="mock")
     assert (res.ok, res.status, res.error) == (False, 404, "unknown_alias")
+
+
+def _chunk(path, first, lines):
+    return path, "".join(f"{first + i}| {line}\n" for i, line in enumerate(lines))
+
+
+def test_explorer_cites_section_under_matching_heading():
+    chunks = [_chunk("README.md", 1, ["Сервіс нотаток зберігає нотатки у сховищі SQLite.", "Нотатки мають теги."]),
+              _chunk("docs/ARCHITECTURE.md", 20, ["## Інваріанти", "", "1. Ідентифікатор лише зростає.", "2. Видалення мʼяке.",
+                                                  "## Конкурентність", "Один процес."])]
+    out = json.loads(fx.explore_json("Які інваріанти має сховище нотаток?", chunks, "system"))
+    assert out["answer"].startswith(fx.EXPLORE_LABEL)
+    assert "«Інваріанти»" in out["answer"] and "Ідентифікатор лише зростає" in out["answer"] and "Один процес" not in out["answer"]
+    assert out["citations"] == [{"path": "docs/ARCHITECTURE.md", "lines": "20-23"}]
+
+
+def test_explorer_ignores_lines_that_echo_the_question():
+    question = "Де перевіряється результат?"
+    chunks = [_chunk("ui/catalog.js", 1, [f'{{ goal: "{question}" }}']),
+              _chunk("pipeline.py", 10, ["Результат перевіряють гейти коду."])]
+    out = json.loads(fx.explore_json(question, chunks, "system"))
+    assert [c["path"] for c in out["citations"]] == ["pipeline.py"]
+
+
+def test_explorer_without_matching_words_reports_missing():
+    out = json.loads(fx.explore_json("Що таке квазар?", [_chunk("a.md", 1, ["Нотатки й теги."])], "system"))
+    assert out["citations"] == [] and out["missing"] and out["answer"].startswith(fx.EXPLORE_LABEL)

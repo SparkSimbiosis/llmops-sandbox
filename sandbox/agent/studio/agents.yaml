@@ -1,0 +1,105 @@
+# Агенти стенда: хто є хто. Агент = роль (пак тексту roles/*.md) + скіли + інструменти + рецепт контексту
+# + контракт виходу + клас моделі. Посилання між файлами перевіряє sandbox/agent/configs.py (validate).
+# pipeline: true — агент уже працює кроком конвеєра; false — поки лише в конструкторі й компіляторі контексту.
+version: 1
+agents:
+  planner:
+    title: "Планувальник"
+    step: plan
+    pipeline: true
+    role: planner
+    skills: [plan-files]
+    prompt: agent-planner          # версіонований промпт із реєстру (вкладка «Промпти»)
+    contract: plan-json
+    model: {step: plan}            # клас — routing.yaml steps.plan
+    tools: [list_allowed_paths]
+    context: plan
+  editor:
+    title: "Виконавець"
+    step: propose
+    pipeline: true
+    engine: code_engine
+    role: editor
+    skills: [safe-diff]
+    prompt: agent-editor
+    contract: unified-diff
+    model: {rules: true}           # клас — правила routing.yaml (ризик / довжина / складність)
+    tools: [read_site_file, propose_diff, run_gates]
+    context: propose
+  repo_editor:
+    title: "Редактор репозиторію"
+    step: propose                  # той самий крок і промпт agent-editor; конвеєр сайту бере editor (він вище)
+    pipeline: true                 # сценарій «Зміна з підтвердженням» для git-проєкту: diff -> заявка -> .patch
+    role: repo-editor
+    skills: [minimal-patch]
+    prompt: agent-editor
+    contract: unified-diff
+    model: {rules: true}
+    tools: [list_project_files, build_context_pack, propose_repo_patch, run_repo_gates, export_patch]
+    context: patch
+  chat:
+    title: "Співрозмовник"
+    step: chat
+    pipeline: true                 # W5: вкладка «Чат»; змін не пише — пропозицію передає виконавцю
+    role: assistant
+    skills: []
+    prompt: agent-chat
+    contract: chat-json
+    model: {step: chat}
+    tools: [list_allowed_paths, read_site_file, submit_proposal]
+    context: chat
+  explorer:
+    title: "Дослідник проєкту"
+    step: explore
+    pipeline: true                 # W6: вкладка «Проєкт» — питання до реального репозиторію, лише читання
+    role: explorer
+    skills: [cite-sources]
+    prompt: agent-explorer
+    contract: answer-with-citations
+    model: {step: explore}
+    tools: [list_project_files, build_context_pack, check_citations]
+    context: explore
+  critic:
+    title: "Критик"
+    step: review
+    pipeline: false                # з'явиться кроком у W5 (рев'ю перед рішенням людини)
+    engine: critic_engine
+    role: critic
+    skills: [review-diff]
+    contract: review-report
+    model: {class: reasoning}
+    tools: [read_patch]
+    context: review
+  architect:
+    title: "Архітектор"
+    step: design
+    pipeline: false
+    engine: architecture_engine
+    role: architect
+    skills: []
+    contract: adr
+    model: {class: reasoning}
+    tools: [list_allowed_paths]
+    context: engine
+  researcher:
+    title: "Дослідник"
+    step: research
+    pipeline: false
+    engine: research_engine
+    role: researcher
+    skills: []
+    contract: research-report
+    model: {class: balanced}
+    tools: []
+    context: engine
+  documenter:
+    title: "Документатор"
+    step: docs
+    pipeline: false
+    engine: documentation_engine
+    role: documenter
+    skills: []
+    contract: docs-page
+    model: {class: fast}
+    tools: [read_site_file]
+    context: engine

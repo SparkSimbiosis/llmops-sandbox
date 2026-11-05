@@ -1,0 +1,19 @@
+# R-1: локальне ввімкнення реальної моделі для dev-агента (DeepSeek через gateway).
+# Скопіюй у real.local.yml (у .gitignore) і заміни шляхи; запуск:
+#   docker compose -p llm-ops -f docker-compose.yml -f demo-ports.yml -f real.local.yml up --build -d
+# Ключ лежить лише у файлі env_file gateway — сервіс його не бачить. Бюджет: не більше $1 на день.
+services:
+  gateway:
+    env_file:
+      - path: /path/to/gateway/.env          # файл з DEEPSEEK_API_KEY; у git не потрапляє
+        required: true
+  service:
+    environment:
+      - AGENT_PROVIDER_MODE=real
+      - AGENT_REAL_BUDGET_USD=1.0
+      - AGENT_GATE_DIR=/gate
+    volumes:
+      # гейт вихідного контексту: denylist приватних імен і патерни секретів, лише для читання
+      - /path/to/denylist.txt:/gate/denylist.txt:ro
+      - /path/to/denylist-words.txt:/gate/denylist-words.txt:ro
+      - /path/to/secret-patterns.txt:/gate/secret-patterns.txt:ro

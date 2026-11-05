@@ -18,7 +18,8 @@ def test_allowlisted_diff_passes_both_gates():
     files = seed_files()
     diff = fx.edit_diff("Онови рік у підвалі сайту", [("demo-site/footer.html", files["demo-site/footer.html"])])
     report, patch = run_gates(diff)
-    assert report == [{"gate": "parse_ok", "ok": True}, {"gate": "allowed_paths", "ok": True}]
+    assert [(g["gate"], g["ok"]) for g in report] == \
+        [("parse_ok", True), ("allowed_paths", True), ("forbidden_patterns", True), ("size_limits", True)]
     assert patch.paths == ["demo-site/footer.html"]
 
 
@@ -41,7 +42,7 @@ def test_every_allowlisted_path_is_ok():
 ])
 def test_bad_paths_are_rejected(old, new, reason):
     report, _ = run_gates(diff_between(old, new))
-    parse_ok, allowed = report
+    parse_ok, allowed = report[:2]
     assert parse_ok == {"gate": "parse_ok", "ok": True}
     assert allowed["gate"] == "allowed_paths" and allowed["ok"] is False
     assert reason in [v["reason"] for v in allowed["violations"]]
@@ -52,4 +53,4 @@ def test_bad_paths_are_rejected(old, new, reason):
 
 def test_unparsable_diff_closes_allowed_paths():
     report, patch = run_gates("not a diff at all")
-    assert [g["ok"] for g in report] == [False, False] and patch is None
+    assert [g["ok"] for g in report] == [False] * 4 and patch is None

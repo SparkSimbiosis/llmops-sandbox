@@ -6,6 +6,17 @@
 # локальний зсув портів — не комітиться: CI очікує стандартні порти
 docker-compose.override.yml
 
+# I-1: локальне монтування каталогу інструкцій (локальний шлях)
+instructions.local.yml
+
+# W6: локальне монтування llm-ops для догфудингу (локальний шлях)
+workspace.local.yml
+
+# окремий превʼю стенда на :8280 (локальні шляхи й локальний базовий образ) — лише на машині автора;
+# стенд для всіх піднімається звичайним docker compose up --build
+compose.stand.yml
+Dockerfile.stand
+
 # python
 __pycache__/
 *.pyc
@@ -31,3 +42,7 @@ Thumbs.db
 # спільні налаштування проєкту лишаємо: вони стосуються всіх, хто відкриє
 # стартер, а не чиїхось особистих звичок
 !.vscode/settings.json
+real.local.yml
+
+# Local durable dev-agent execution journal
+data/agent-executions/

@@ -23,9 +23,10 @@ client = TestClient(app)
 EX = pathlib.Path(__file__).resolve().parents[2] / "examples" / "agent"
 
 TASK_KEYS = {"task_id", "status", "task_text", "intent", "complexity", "mode", "base", "prompt", "model", "calls",
-             "tokens", "cost_usd", "gates", "patch", "message"}
+             "tokens", "cost_usd", "gates", "patch", "agents", "model_choice", "cache", "cache_hits", "approval",
+             "message"}
 CALL_KEYS = {"seq", "step", "attempt", "provider", "model", "prompt_version", "prompt_sha256", "prompt_tokens",
-             "completion_tokens", "cost_usd", "latency_ms", "status"}
+             "completion_tokens", "cost_usd", "latency_ms", "status", "cache_hit"}
 
 
 def use_repo(monkeypatch, mem):
@@ -57,7 +58,9 @@ def test_header_task_is_proposed_with_two_versioned_calls(mem):
         ("proposed", "header_login_button", "complex", "fake-strong", 2)
     assert isinstance(d["cost_usd"], float) and d["cost_usd"] > 0
     assert (d["mode"], d["base"], d["prompt"]) == ("mock", "current", {"name": "agent-editor", "version": "v2"})
-    assert d["gates"] == [{"gate": "parse_ok", "ok": True}, {"gate": "allowed_paths", "ok": True}]
+    assert [(g["gate"], g["ok"]) for g in d["gates"]] == [("parse_ok", True), ("allowed_paths", True),
+        ("forbidden_patterns", True), ("size_limits", True), ("base_version", True)]
+    assert d["approval"]["status"] == "pending"
     assert d["patch"]["files"] == ["demo-site/header.html", "demo-site/styles.css"]
     assert d["patch"]["sha256"] == sha256_hex(d["patch"]["diff"])
     assert "@@ -4,4 +4,5 @@" in d["patch"]["diff"] and "@@ -3,3 +3,4 @@" in d["patch"]["diff"]
@@ -190,7 +193,7 @@ def test_list_tasks_newest_first_with_cost(mem):
     second = post_task(example("task_unknown.json")).json()
     rows = client.get("/agent/tasks?limit=20").json()["tasks"]
     assert [r["task_id"] for r in rows] == [second["task_id"], first["task_id"]]
-    assert set(rows[0]) == {"task_id", "created_at", "status", "intent", "model", "cost_usd"}
+    assert set(rows[0]) == {"task_id", "created_at", "status", "intent", "mode", "model", "cost_usd"}
     assert rows[1]["model"] == "fake-mini"
     assert [r["cost_usd"] for r in rows] == [second["cost_usd"], first["cost_usd"]]
     assert all(isinstance(r["cost_usd"], float) and r["cost_usd"] > 0 for r in rows)

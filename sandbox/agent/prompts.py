@@ -1,7 +1,7 @@
 """Реєстр агентських промптів: той самий механізм уроку W1, що й у курсу, але на власній таблиці.
 
-Версії наповнює лише міграція (db/schema.sql). Ендпоінта створення версії немає — сервіс версії
-тільки читає й перемикає. У кожен рядок agent_calls пишеться версія і sha256 тексту,
+Початкові версії — з міграції (db/schema.sql); редактор UI додає нові через POST /agent/prompts/{name}:
+лише наступну vN+1, неактивною, без зміни наявних (редагування = нова версія). У кожен рядок agent_calls пишеться версія і sha256 тексту,
 який справді пішов у модель.
 """
 
@@ -54,6 +54,27 @@ class AgentPromptRegistry:
     async def rollback(self, name: str, quote: str | None = None) -> dict | None:
         """None — повертатися нема куди (маршрут відповідає 409)."""
         return _shape(name, await self._repo.rollback_prompt(name, ACTOR, quote))
+
+    async def get(self, name: str, version: str) -> dict | None:
+        r = await self._repo.get_prompt(name, version)
+        if r is None:
+            return None
+        return {"name": r["name"], "version": r["version"], "active": r["active"],
+                "version_id": str(r["version_id"]), "sha256": sha256_hex(r["body"]), "body": r["body"],
+                "created_at": r["created_at"].isoformat()}
+
+    async def create(self, name: str, body: str) -> dict | None:
+        """None — невідоме ім'я (маршрут відповідає 404). created=false — такий текст уже є в реєстрі."""
+        result = await self._repo.create_prompt_version(name, body)
+        if result is None:
+            return None
+        version, created = result
+        return {"name": name, "version": version, "sha256": sha256_hex(body), "created": created}
+
+    async def activations(self, name: str, limit: int = 20) -> "list[dict]":  # list тут — метод класу
+        return [{"version": a["version"], "previous_version": a["previous_version"], "actor": a["actor"],
+                 "quote": a["approval_quote"], "activated_at": a["activated_at"].isoformat()}
+                for a in await self._repo.list_activations(name, limit)]
 
 
 def _shape(name: str, result) -> dict | None:

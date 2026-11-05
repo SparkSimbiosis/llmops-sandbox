@@ -22,7 +22,9 @@ def test_unit_price_is_exact_for_any_mix(model, pt, ct):
 
 def test_strong_to_mini_ratio_and_in_equals_out():
     assert UNIT["fake-strong"] / UNIT["fake-mini"] == Decimal(50) / 3
-    assert all(p_in == p_out for p_in, p_out in PRICES_PER_1K.values())
+    # синтетичні fake-ціни: вхід = вихід; DeepSeek (R-1) — справжній прайс, де вихід дорожчий
+    assert all(PRICES_PER_1K[m][0] == PRICES_PER_1K[m][1] for m in ("fake-mini", "fake-strong"))
+    assert all(PRICES_PER_1K[m][1] > PRICES_PER_1K[m][0] for m in pricing.REAL_MODELS)
 
 
 def test_example_task_from_plan():
@@ -54,4 +56,4 @@ def test_total_cost_null_rule():
 
 
 def test_pricing_labels():
-    assert pricing.PRICING == {"fake": "synthetic", "real": "owner_supplied"}
+    assert pricing.PRICING == {"fake": "synthetic", "real": "deepseek_list_price"}
