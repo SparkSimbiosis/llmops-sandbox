@@ -346,12 +346,101 @@ curl -s -X POST http://localhost:8080/prompts/v2/activate -H 'Content-Type: appl
 
 ## Dev-agent (поза критеріями CHECKS)
 
-Демо-сценарій поруч із курсом: ті самі механізми уроків, показані вдруге в іншому контексті. Агент
-отримує задачу на зразок «додай кнопку логіну в шапку», планує зміну і пропонує unified diff до фейкового
-навчального сайту `demo-site/` (чотири файли, що зберігаються в БД). Критерії `homework/CHECKS.md` агента
-не стосуються, і курсових перевірок він не зачіпає.
+Другий стенд у тому самому репозиторії — dev-агент, що змінює код. Принцип: **модель пропонує, код перевіряє,
+людина вирішує**. Агент планує зміну й повертає unified diff, детерміновані гейти його перевіряють, а застосувати
+зміну може лише людина через заявку. Це ті самі механізми уроків курсу (реєстр промптів, роутинг і вартість, кеш,
+гейти, HITL, перевірка на промпт-інʼєкції), показані вдруге на іншій задачі. Критерії `homework/CHECKS.md` агента
+не стосуються, і курсових перевірок він не зачіпає. Специфікація і стан кожного шару —
+[docs/AGENT_SPEC.md](docs/AGENT_SPEC.md) (розділ 0).
 
-**Ізоляція від курсу.**
+### Запуск з чистого клону
+
+```sh
+docker compose up --build -d
+# стенд: http://localhost:8080/agent/ui   (з demo-ports.yml — http://localhost:8180/agent/ui)
+```
+
+Окремих кроків не треба: `/agent/*` увімкнені за замовчуванням, режим — mock (детермінований `FakeProvider` у
+процесі: без ключів і без витрат), таблиці агента створює той самий `db/schema.sql` на новому томі БД. Навчальний
+сайт `demo-site` (файли в БД) і тестовий репозиторій `notes-app` (`sandbox/agent/workspaces/notes-app`) працюють
+одразу. Проєкт `llm-ops` (догфудинг) — цей самий репозиторій: `docker-compose.yml` монтує в сервіс лише корені
+білого списку (`README.md`, документація, `homework`, `evals`, `sandbox`, конфіг gateway) і лише для читання,
+тож сценарії `LLM-Ops · …` на «Огляді» теж працюють одразу; `gateway/.env` і `*.local.yml` у контейнер не потрапляють.
+Опційні локальні файли, обидва в `.gitignore`:
+
+- `workspace.local.yml` (з `workspace.local.yml.example`) — показати агенту іншу робочу копію замість цієї.
+- `real.local.yml` (з `real.local.yml.example`) — реальна модель DeepSeek зі своїм ключем, див. наступний розділ.
+  Без цього файлу перемикач Real у шапці недоступний, а запит із `"mode":"real"` отримує `403`.
+
+### Real-режим зі своїм ключем DeepSeek
+
+Mock доводить механіку, а щоб подивитися ту саму роботу на реальній моделі, потрібен лише ключ DeepSeek
+(platform.deepseek.com -> API keys). Три команди з кореня репозиторію:
+
+```sh
+cp gateway/.env.example gateway/.env          # вписати DEEPSEEK_API_KEY=sk-...   (gateway/.env у .gitignore)
+cp real.local.yml.example real.local.yml      # без правок: шляхи вже вказують на файли репозиторію
+docker compose -f docker-compose.yml -f real.local.yml up --build -d
+# зайняті порти: docker compose -f docker-compose.yml -f demo-ports.yml -f real.local.yml up --build -d
+```
+
+- У шапці `/agent/ui` стає доступним перемикач **Real**. Він діє на наступний запит: запуск на «Паспорті і запуску»,
+  чат, контекст проєкту й пак ін'єкцій. Негативні приклади на кшталт «зовнішнього трекера» — лише в mock.
+- Ключ читає тільки gateway (`env_file: gateway/.env` у `docker-compose.yml`): сервіс і UI його не бачать, у БД
+  і лог він не потрапляє.
+- Витрати: бюджет-гард $1 на день (`AGENT_REAL_BUDGET_USD`; стеля в коді, більшого не виставити). Вартість кожного
+  виклику видно в задачі й у `GET /agent/cost`; ціни DeepSeek — у розділі «Реальна модель».
+- Перед кожним real-викликом гейт вихідного контексту перевіряє текст на секрети й приватні імена. Навчальний
+  denylist — `examples/agent/gate/denylist.txt`; без denylist гейт закритий і real не працює (fail-closed).
+- На real Code Engine може повернути некоректний diff — тоді його зупиняє гейт `parse_ok` (див. «Відомі обмеження»).
+  Це очікувана поведінка: модель пропонує, код перевіряє.
+- Ключ не підхопився — задача в Real має статус `provider_error`, а `docker compose logs gateway | grep -i auth`
+  показує `401 Authentication Fails`.
+- Курсовий бот бере той самий ключ: додайте `REAL_MODEL=deepseek-chat` перед `docker compose` (розділ «Реальна
+  модель»). Повернутися на mock — `docker compose up -d` без `-f real.local.yml`.
+
+### Демо за 5 хвилин (mock, через UI)
+
+1. **Огляд** -> «Навчальний сайт · кнопка входу» -> **Паспорт і запуск**: підготувати, потім запустити (це дві
+   окремі дії). Planner -> Editor -> гейти -> заявка. **Рішення людини** -> Approve -> **Перегляд сайту** показує
+   кнопку в шапці; reset повертає сайт до seed.
+2. «Негативний · зовнішній трекер» (**Ручний конвеєр сайту**) -> `rejected_by_gate`: diff із зовнішнім скриптом
+   зупиняє детермінований гейт `forbidden_patterns`, а не модель.
+3. «Пастка · інструкція в docs/OPERATIONS.md» (`notes-app`) -> у mock модель навмисно виконує інструкцію,
+   підкладену у файл проєкту, а гейт `reply_leak` зупиняє відповідь (`blocked_by_output_gate`): непряма
+   ін'єкція з уроку 8.
+4. **Версії промптів** -> активувати зламаний `agent-editor` v1 -> задача на сайт дає `no_patch` -> rollback ->
+   знову `proposed`.
+5. **Перевірка ін'єкцій** -> прогнати пак: мʼякий шар (модель не піддалася) і жорсткий (ін'єкція не мала
+   наслідків) окремо, з деталями кожної перевірки.
+
+### Що переглянути в коді
+
+- `sandbox/agent/gates.py` — гейти diff: `parse_ok`, `allowed_paths`, `forbidden_patterns`, `size_limits`,
+  `base_version`; `sandbox/agent/approvals.py` — заявки, `stale`, застосування лише після рішення людини.
+- `sandbox/agent/compiler.py` і `contextpack.py` — що саме йде в модель: інструкції в system, задача й недовірені
+  файли в user, у кожного блоку видно джерело й версію.
+- `sandbox/agent/injections.py` і `outgoing.py` — пак промпт-інʼєкцій і гейт вихідного контексту перед real-викликом.
+- `tests/agent/` — pytest і node-тести UI агента. Разом із тестами ізоляції вони йдуть у тому самому job `eval`
+  до збірки стека: падіння зупиняє гейт за хвилину.
+
+### Питання до ментора
+
+1. Чи зрозуміло з UI, хто визначає наступну дію — модель, код чи людина?
+2. Чи достатньо контексту, що йде в модель, і чи видно його джерела?
+3. Чи коректні контракти, облік вартості й відмови?
+4. Які механіки варто перенести у власний агентський каркас, а які зайві?
+
+### Відомі обмеження
+
+- Mock доводить механіку, а не якість LLM. У попередній перевірці на реальній моделі чотири текстові Engine
+  пройшли структурні контракти, а Code Engine повернув некоректний diff і був відхилений.
+- Немає автоматичної команди з п'яти Engine, довгострокової пам'яті та повного відновлення задачі після збою.
+- Fallback і PII-маскування задачі агента відкладено (W4b). Метрики «як у курсі» (W5) і окремий CI-гейт агента (W6)
+  знято: вони вже є в курсовому сценарії, а тести агента йдуть у спільному job `eval`.
+
+### Ізоляція від курсу
+
 - Власні таблиці `agent_*` — блок `-- === hw1: agent ... ===` у кінці `db/schema.sql`. Курсові `requests`,
   `prompts` і `prompt_activations` агент не читає й не пише. Seed агента йде в `agent_prompts`, тому пошук
   `INSERT INTO prompts` і далі знаходить лише курсовий seed.
@@ -363,7 +452,10 @@ curl -s -X POST http://localhost:8080/prompts/v2/activate -H 'Content-Type: appl
 - Ізоляцію перевіряють `tests/test_isolation_static.py` (імпорти, SQL, схема, guarded-блок) і
   `tests/test_isolation_runtime.py` (прогони агента не торкаються курсових репозиторіїв, gateway і стану).
 
-**Що вміє в hw1** — той самий механізм, що й курс: реєстр промптів і версія в кожному рядку логу.
+### API без UI (hw1–hw2)
+
+Той самий механізм, що й курс: реєстр промптів і версія в кожному рядку логу.
+
 - Реєстр агентських промптів `agent-planner` v1 і `agent-editor` v1/v2 (активна v2):
   `GET /agent/prompts`; `POST /agent/prompts/{name}/{version}/activate` — з аудитом у
   `agent_prompt_activations`, невідома версія → `404` без змін; `POST /agent/prompts/{name}/rollback` —
@@ -374,25 +466,18 @@ curl -s -X POST http://localhost:8080/prompts/v2/activate -H 'Content-Type: appl
   (`mode` і `base` необов'язкові), `GET /agent/tasks`, `GET /agent/tasks/{task_id}`. Одна задача — два
   виклики моделі: `plan` (`agent-planner` обирає намір і файли) і `propose` (`agent-editor` повертає diff).
   Кожен виклик — рядок `agent_calls` з `prompt_version` і `prompt_sha256` тексту, який справді пішов у модель.
-- Гейти hw1: `parse_ok` (відповідь справді є diff) і `allowed_paths` (лише чотири файли `demo-site/`, без `..`,
-  абсолютних шляхів, перейменувань, створення й видалення файлів). У hw1 diff лише пропонується, сайт не змінюється.
+- Маршрутизація й вартість (hw2): `plan` завжди йде на `fake-mini`, `propose` — за складністю (`simple` → `fake-mini`,
+  `complex` → `fake-strong`; задача довша за 300 символів — `complex`). Кожен виклик має `cost_usd` за синтетичними
+  цінами `sandbox/agent/pricing.py` (0.003 / 0.05 за 1k, окремо від курсових), задача — `total_cost_usd`, а
+  `GET /agent/cost` рахує суму дня лише по `agent_calls`.
 
 Статуси задачі (усі з HTTP 200): `proposed`; `no_change` — сайт уже такий; `no_patch` — модель не повернула
 diff (так виглядає зламаний або відкочений промпт `agent-editor`); `needs_clarification` — намір не розпізнано;
 `rejected_by_gate`; `provider_error` — виклик моделі впав, змін не запропоновано. Коди помилок: `422` — невалідне
-тіло, `403 {"error":"real_mode_disabled"}` — запит із `"mode":"real"`, `503` — недоступна БД агента.
+тіло, `403 {"error":"real_mode_disabled"}` — `"mode":"real"` без `real.local.yml`, `503` — недоступна БД агента.
+Маркери збоїв у тексті задачі — як у курсовому mock: `__fail_503`, `__fail_429`, `__delay`, `__garbage`.
 
-**Модель.** Детермінований `FakeProvider` у процесі (`sandbox/llm/fake_provider.py`): реальний ключ не потрібен,
-курсовий mock-provider не змінюється. Маркери в тексті задачі — як у mock: `__fail_503`, `__fail_429`, `__delay`,
-`__garbage`. Режим `real` до hw4 вимкнено.
-
-**Що додає hw2** — маршрутизація й вартість, як у курсі. `plan` завжди йде на `fake-mini`, `propose` — за складністю
-(`simple` → `fake-mini`, `complex` → `fake-strong`; задача довша за 300 символів — `complex`). Кожен виклик має `cost_usd`
-за синтетичними цінами `sandbox/agent/pricing.py` (0.003 / 0.05 за 1k, окремо від курсових), задача — `total_cost_usd`,
-а `GET /agent/cost` рахує суму дня лише по `agent_calls`. Колонки додає міграція `db/agent_migrations/hw2_routing_cost.sql`.
-
-**Спробувати** (стандартний запуск — сервіс на `:8080`, з `demo-ports.yml` — на `:8180`; кирилицю
-надсилайте лише з файлу):
+Спробувати (сервіс на `:8080`, з `demo-ports.yml` — на `:8180`; кирилицю надсилайте лише з файлу):
 
 ```sh
 SVC=http://localhost:8080
@@ -404,11 +489,6 @@ curl -s -X POST $SVC/agent/tasks -H 'Content-Type: application/json' \
   --data-binary @examples/agent/task_footer_year.json              # -> "status":"no_patch"
 curl -s -X POST $SVC/agent/prompts/agent-editor/rollback -H 'Content-Type: application/json' -d '{}'
 ```
-
-**Як росте далі.** Схема агента росте по тижнях адитивними міграціями (`db/agent_migrations/`, з hw2; той самий
-текст дописується в кінець `db/schema.sql`): hw2 — маршрутизація за складністю і вартість викликів, hw3 — кеш
-кроків і dry-run, hw4 — fallback, застосування diff лише через approval, PII і preview сайту, hw5 — метрики
-й власні evals, hw6 — окремий CI-job.
 
 # Starter repository
 

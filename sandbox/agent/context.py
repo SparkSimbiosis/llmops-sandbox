@@ -16,6 +16,11 @@ def _allowed_block() -> str:
     return "<allowed_paths>\n" + "".join(f"{p}\n" for p in ALLOWED_PATHS) + "</allowed_paths>\n"
 
 
+def system_text(prompt_body: str, extra: str) -> str:
+    """Версіонований промпт іде першим: він задає формат відповіді; роль і скіли — після нього."""
+    return prompt_body if not extra else f"{prompt_body}\n\n{extra}"
+
+
 def plan_messages(system: str, task_text: str) -> list[dict]:
     # планувальнику вміст файлів не потрібен: він лише обирає намір і файли зі списку
     return [{"role": "system", "content": system},

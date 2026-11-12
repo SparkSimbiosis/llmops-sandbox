@@ -1,0 +1,25 @@
+"use strict";
+const assert = require("node:assert/strict"), fs = require("node:fs"), vm = require("node:vm");
+const source = fs.readFileSync("sandbox/agent/ui/app.js", "utf8");
+const start=source.indexOf("let uiRequestSequence = 0;");
+const end=source.indexOf("\n}",start)+2;
+let mode="mock", fail=false, resolve, events=[], starts=[], requests=[];
+const context={taskMode:()=>mode, CustomEvent:class{constructor(type,args){this.type=type;this.detail=args.detail;}}, document:{dispatchEvent:event=>(event.type === "agent:requeststart" ? starts : events).push(event)}, fetch:async(path,opt)=>{requests.push({path,opt}); if(fail) throw new Error("offline"); return await new Promise(done=>{resolve=()=>done({status:200,json:async()=>({status:"rejected_by_gate"})});});}};
+vm.createContext(context); vm.runInContext(source.slice(start,end),context);
+(async()=>{
+ const body={message:"PRIVATE TASK TEXT",mode:"real"};
+ const pending=context.api("POST","/workspace/notes-app/ask",body);mode="mock";assert.equal(starts.length,1,"start is visible before response");assert.equal(events.length,0);resolve();const response=await pending;
+ assert.equal(response.data.status,"rejected_by_gate");
+ assert.equal(starts[0].detail.requestId,events[0].detail.requestId);
+ assert.equal(starts[0].detail.mode,"real");
+ assert.equal(requests[0].path,"/agent/workspace/notes-app/ask");
+ assert.deepEqual(JSON.parse(requests[0].opt.body),body);
+ assert.equal(events[0].detail.path,"/workspace/ask");assert.equal(events[0].detail.mode,"real","mode captured before awaiting response");
+ assert.equal(events[0].detail.status,"rejected_by_gate","HTTP 200 does not invent success");
+ assert(!JSON.stringify(events).includes("PRIVATE TASK TEXT"),"activity event excludes request content");
+ const count=events.length; const get=context.api("GET","/config");resolve();await get;assert.equal(events.length,count,"reads do not invent actions");
+ fail=true;await assert.rejects(()=>context.api("POST","/studio/run",{}),/offline/);
+ assert.equal(events.at(-1).detail.http,null,"uncertain outcome remains uncertain");
+ assert.equal(requests.length,3,"network failure is not retried");
+ console.log("PASS request activity: unchanged requests/results, frozen submitted mode, no private payload, no invented success, uncertain no retry");
+})();

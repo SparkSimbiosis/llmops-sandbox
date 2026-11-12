@@ -1,0 +1,19 @@
+# Не обов'язковий: docker-compose.yml уже монтує цей репозиторій як проєкт llm-ops (лише читання).
+# Потрібен, лише щоб показати агенту ІНШУ робочу копію. Скопіюй у workspace.local.yml (не комітиться),
+# підстав шлях і додай до команди стека: -f workspace.local.yml
+# Монтуємо поштучно лише корені білого списку sandbox/agent/workspace.py: решта (gateway/.env, db, *.local.yml)
+# у контейнер не потрапляє взагалі, а код ще раз фільтрує білим списком і жорсткими виключеннями.
+# Ті самі цілі, що в docker-compose.yml, — Compose замінить базові монтування цими.
+services:
+  service:
+    volumes:
+      - /path/to/llm-ops/README.md:/workspaces/llm-ops/README.md:ro
+      - /path/to/llm-ops/GETTING_STARTED.md:/workspaces/llm-ops/GETTING_STARTED.md:ro
+      - /path/to/llm-ops/INCIDENT_RUNBOOK.md:/workspaces/llm-ops/INCIDENT_RUNBOOK.md:ro
+      - /path/to/llm-ops/PREREQUISITES.md:/workspaces/llm-ops/PREREQUISITES.md:ro
+      - /path/to/llm-ops/docs:/workspaces/llm-ops/docs:ro
+      - /path/to/llm-ops/homework:/workspaces/llm-ops/homework:ro
+      - /path/to/llm-ops/evals:/workspaces/llm-ops/evals:ro
+      - /path/to/llm-ops/gateway/litellm-config.yaml:/workspaces/llm-ops/gateway/litellm-config.yaml:ro
+      - /path/to/llm-ops/monitoring/prometheus.yml:/workspaces/llm-ops/monitoring/prometheus.yml:ro
+      - /path/to/llm-ops/sandbox:/workspaces/llm-ops/sandbox:ro

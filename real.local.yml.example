@@ -1,0 +1,18 @@
+# R-1: реальна модель для dev-агента (DeepSeek через gateway).
+#   1) cp gateway/.env.example gateway/.env  і впиши DEEPSEEK_API_KEY=...  (gateway/.env у .gitignore)
+#   2) cp real.local.yml.example real.local.yml   (real.local.yml теж у .gitignore)
+#   3) docker compose -f docker-compose.yml -f real.local.yml up --build -d
+#      порти зайняті — docker compose -f docker-compose.yml -f demo-ports.yml -f real.local.yml up --build -d
+# Ключ читає лише gateway (env_file gateway/.env у docker-compose.yml), сервіс його не бачить.
+# Бюджет: не більше $1 на день (стеля в коді, більше не виставити).
+services:
+  service:
+    environment:
+      - AGENT_PROVIDER_MODE=real
+      - AGENT_REAL_BUDGET_USD=1.0
+      - AGENT_GATE_DIR=/gate
+    volumes:
+      # гейт вихідного контексту: навчальний denylist з репозиторію, лише для читання.
+      # Свої приватні імена й патерни секретів — каталог поза репозиторієм з denylist.txt,
+      # denylist-words.txt і secret-patterns.txt замість ./examples/agent/gate
+      - ./examples/agent/gate:/gate:ro

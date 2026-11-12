@@ -19,6 +19,21 @@ services:
       - REAL_BUDGET_USD=${REAL_BUDGET_USD:-1.0}
       # (опц.) semantic cache: SEMANTIC_CACHE=1 + docker compose --profile advanced (redis, embeddings)
       - SEMANTIC_CACHE=${SEMANTIC_CACHE:-0}
+      # стенд агента: проєкт llm-ops — цей самий репозиторій, лише читання (/agent/*, курс не чіпає)
+      - WORKSPACE_LLM_OPS_DIR=/workspaces/llm-ops
+    # Поштучно лише корені білого списку sandbox/agent/workspace.py: gateway/.env, db і *.local.yml
+    # у контейнер не потрапляють; код ще раз фільтрує білим списком і жорсткими виключеннями.
+    volumes:
+      - ./README.md:/workspaces/llm-ops/README.md:ro
+      - ./GETTING_STARTED.md:/workspaces/llm-ops/GETTING_STARTED.md:ro
+      - ./INCIDENT_RUNBOOK.md:/workspaces/llm-ops/INCIDENT_RUNBOOK.md:ro
+      - ./PREREQUISITES.md:/workspaces/llm-ops/PREREQUISITES.md:ro
+      - ./docs:/workspaces/llm-ops/docs:ro
+      - ./homework:/workspaces/llm-ops/homework:ro
+      - ./evals:/workspaces/llm-ops/evals:ro
+      - ./gateway/litellm-config.yaml:/workspaces/llm-ops/gateway/litellm-config.yaml:ro
+      - ./monitoring/prometheus.yml:/workspaces/llm-ops/monitoring/prometheus.yml:ro
+      - ./sandbox:/workspaces/llm-ops/sandbox:ro
     depends_on: [gateway, postgres]
 
   gateway:

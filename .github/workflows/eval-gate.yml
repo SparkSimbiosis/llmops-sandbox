@@ -10,6 +10,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # найдешевше — першим (L11): юніт-тести курсу й dev-агента, включно з тестами ізоляції агента від курсу.
+      # Без стека, за хвилину; падіння тут зупиняє гейт до збірки образів.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests (pytest, без стека)
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q -p no:cacheprovider tests
+
+      - name: UI tests dev-агента (node)
+        run: for f in tests/agent/*.js; do echo "$f"; node "$f"; done
+
       - name: Up stack (без UI — для evals не потрібен)
         run: docker compose up -d --build service
 

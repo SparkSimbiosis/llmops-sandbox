@@ -97,7 +97,7 @@ def test_agent_runs_do_not_touch_course(stack):
     assert prompts.activations == [] and [r["active"] for r in prompts.rows] == [False, True]
     assert course_state() == before
     after = AGENT_STATE.snapshot()
-    assert after["calls"] - agent_before["calls"] == 3 + 2 * 2
+    assert after["calls"] - agent_before["calls"] == 3 + 2       # повтор узяв обидва кроки з кешу (W3)
     assert after["call_errors"] - agent_before["call_errors"] == 3
 
     # курс після агента працює як завжди: версія курсового промпта не змінилася

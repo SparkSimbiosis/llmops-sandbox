@@ -1,0 +1,36 @@
+# Local stand passports: declarations do not deploy or grant filesystem access.
+version: 1
+global_floor:
+  secret_check: true
+  human_approval_for_apply: true
+  actual_repository_apply: false
+  max_retries_after_uncertain_outcome: 0
+execution_profiles:
+  quick: {max_tokens: 600, context_budget: 1000, model_class: fast}
+  thorough: {max_tokens: 1600, context_budget: 4000, model_class: fast}
+environments:
+  lab: {allow_changes: true}
+  staging: {allow_changes: false}
+  production: {allow_changes: false}
+projects:
+  demo-site:
+    title: Demo site in database
+    kind: demo
+    roles: [planner, editor, assistant]
+    propose_demo_changes: true
+    human_apply_demo: true
+    propose_patches: false
+  notes-app:
+    title: Notes sample repository
+    kind: sample
+    roles: [explorer]
+    propose_demo_changes: false
+    human_apply_demo: false
+    propose_patches: false
+  llm-ops:
+    title: LLM Ops read-only workspace
+    kind: mount
+    roles: [explorer, repo-editor]
+    propose_demo_changes: false
+    human_apply_demo: false
+    propose_patches: true            # лише пропозиція .patch; робоча копія read-only, застосовує людина

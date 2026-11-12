@@ -1,0 +1,10 @@
+# I-1: локальний каталог інструкцій для стенда — лише для читання. Скопіюй у instructions.local.yml (не комітиться),
+# підстав шлях і додай до команди стека: -f instructions.local.yml
+services:
+  service:
+    environment:
+      - INSTRUCTIONS_DIR=/instructions
+      # (опц.) перевизначити тип окремих файлів: шлях=тип через кому (role|rule|workflow|contract|skill)
+      - INSTRUCTIONS_KINDS=
+    volumes:
+      - /path/to/your/instructions:/instructions:ro

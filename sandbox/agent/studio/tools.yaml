@@ -1,0 +1,96 @@
+# Інструменти агента: що конвеєр робить за агента. Модель їх не викликає сама (немає function calling) —
+# кожен інструмент виконує детермінований код, а модель бачить лише результат у контексті.
+# kind: read — лише читає; propose — модель пропонує, нічого не застосовано; check — гейт; write — змінює стан.
+version: 1
+tools:
+  list_allowed_paths:
+    title: "Список дозволених файлів"
+    kind: read
+    impl: sandbox.agent.settings.ALLOWED_PATHS
+    what: "Явний список файлів демо-сайту, які агент може взагалі бачити й змінювати."
+    enabled: true
+    needs_approval: false
+  read_site_file:
+    title: "Прочитати файл сайту"
+    kind: read
+    impl: sandbox.agent.repo.AgentRepo.site_files
+    what: "Поточна (або seed) версія файлу з БД стенда; лише шляхи зі списку дозволених."
+    enabled: true
+    needs_approval: false
+  list_project_files:
+    title: "Файли проєкту"
+    kind: read
+    impl: sandbox.agent.workspace.index
+    what: "Індекс робочого простору: білий список шляхів проєкту мінус жорсткі виключення (секрети, .git, бінарники)."
+    enabled: true
+    needs_approval: false
+  build_context_pack:
+    title: "Зібрати пакет контексту"
+    kind: read
+    impl: sandbox.agent.contextpack.build
+    what: "Фрагменти файлів під питання в межах бюджету токенів, з оцінкою й причиною, чому взято чи відрізано."
+    enabled: true
+    needs_approval: false
+  check_citations:
+    title: "Перевірити посилання"
+    kind: check
+    impl: sandbox.agent.explore.gate_citations
+    what: "Кожне посилання відповіді — шлях і рядки з пакета контексту; вигадане посилання гейт позначає."
+    enabled: true
+    needs_approval: false
+  propose_diff:
+    title: "Запропонувати diff"
+    kind: propose
+    impl: sandbox.agent.pipeline._run
+    what: "Відповідь editor стає пропозицією патча; файли сайту не змінюються."
+    enabled: true
+    needs_approval: false
+  run_gates:
+    title: "Гейти патча"
+    kind: check
+    impl: sandbox.agent.gates.run_gates
+    what: "parse_ok, allowed_paths, forbidden_patterns, size_limits і base_version (dry-run на файлах контексту)."
+    enabled: true
+    needs_approval: false
+  propose_repo_patch:
+    title: "Запропонувати .patch для репозиторію"
+    kind: propose
+    impl: sandbox.agent.repopatch.propose
+    what: "Diff до фрагментів пакета контексту git-проєкту; після гейтів стає заявкою, у репозиторій нічого не пишеться."
+    enabled: true
+    needs_approval: false
+  run_repo_gates:
+    title: "Гейти .patch"
+    kind: check
+    impl: sandbox.agent.gates.run_repo_gates
+    what: "parse_ok (з перерахунком @@), allowed_paths (лише файли пакета), secrets, size_limits і base_version (dry-run на поточних файлах)."
+    enabled: true
+    needs_approval: false
+  export_patch:
+    title: "Видати .patch"
+    kind: write
+    impl: sandbox.agent.approvals.patch_file
+    what: "Після Approve людини: звірка sha256 файлів робочої копії й завантаження .patch. Застосовує його людина (git apply); стенд у репозиторій не пише."
+    enabled: true
+    needs_approval: true
+  read_patch:
+    title: "Прочитати запропонований патч"
+    kind: read
+    impl: sandbox.agent.repo.AgentRepo.get_task
+    what: "Diff задачі для рев'ю критиком."
+    enabled: true
+    needs_approval: false
+  submit_proposal:
+    title: "Передати пропозицію виконавцю"
+    kind: propose
+    impl: sandbox.agent.chat.submit_proposal
+    what: "Пропозиція з чату йде задачею в конвеєр (plan -> propose -> гейти); що пройшло — стає заявкою."
+    enabled: true
+    needs_approval: false
+  apply_patch:
+    title: "Застосувати патч"
+    kind: write
+    impl: sandbox.agent.approvals.approve
+    what: "Нові версії файлів сайту з патча — лише за Approve людини (вкладка «Підтвердження», /agent/approvals)."
+    enabled: true
+    needs_approval: true
