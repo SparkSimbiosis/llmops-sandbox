@@ -100,7 +100,7 @@ def root(project_id: str) -> pathlib.Path | None:
 def status(project_id: str) -> tuple[bool, str | None]:
     r = root(project_id)
     if r is None:
-        return False, f"не змонтовано: потрібен {PROJECTS[project_id]['env']} (локальний workspace.local.yml)"
+        return False, f"не змонтовано: потрібен {PROJECTS[project_id]['env']} (його задає docker-compose.yml)"
     if not r.is_dir():
         return False, "каталог проєкту недоступний у контейнері"
     return True, None
